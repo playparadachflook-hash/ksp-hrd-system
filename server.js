@@ -696,165 +696,147 @@ app.delete('/api/trains/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// ==================== DUTY & ACTIVITIES ====================
-app.get('/api/duties', async (req, res) => {
+// ==================== USER PROFILE & HRD RECORD SECTIONS (SCREENSHOT MENUS) ====================
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
-    const q = String(req.query.q || '').trim();
-    const where = q ? 'WHERE (d.duty_name LIKE ? OR p.fname LIKE ? OR p.lname LIKE ?)' : '';
-    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
-    const [items] = await pool.query(
-      `SELECT d.duty_data_id, d.duty_name, d.duty_type_id, d.duty_startdate, d.duty_enddate, d.person_id,
-              dt.duty_type_name, ds.department_sub_name,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_duty_data d
-       LEFT JOIN hrd_duty_type dt ON dt.duty_type_id = d.duty_type_id
-       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = d.department_sub_id
-       LEFT JOIN hrd_person p ON p.person_id = d.person_id
-       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${where}
-       ORDER BY d.duty_startdate DESC, d.duty_data_id DESC
-       LIMIT 200`,
-      params
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword || String(newPassword).length < 4) {
+      return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านเดิม และรหัสผ่านใหม่อย่างน้อย 4 ตัวอักษร' });
+    }
+    const [rows] = await pool.query(
+      'SELECT person_id FROM hrd_person WHERE person_id = ? AND (password = ? OR password = ?) LIMIT 1',
+      [req.session.user.person_id, md5(String(oldPassword).trim()), String(oldPassword).trim()]
     );
-    const [dutyTypes] = await pool.query('SELECT duty_type_id, duty_type_name FROM hrd_duty_type ORDER BY duty_type_id');
-    res.json({ items, dutyTypes });
+    if (!rows.length) {
+      return res.status(400).json({ error: 'รหัสผ่านเดิมไม่ถูกต้อง' });
+    }
+    await pool.query('UPDATE hrd_person SET password = ? WHERE person_id = ?', [
+      md5(String(newPassword).trim()),
+      req.session.user.person_id,
+    ]);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/duties', requireAuth, async (req, res) => {
+app.get('/api/hrd/record', requireAuth, async (req, res) => {
   try {
-    const b = req.body;
-    const [r] = await pool.query(
-      `INSERT INTO hrd_duty_data (duty_name, duty_type_id, duty_startdate, duty_enddate, department_sub_id, person_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        b.duty_name,
-        Number(b.duty_type_id || 1),
-        b.duty_startdate,
-        b.duty_enddate,
-        req.session.user.department_sub_id || 0,
-        req.session.user.person_id,
-      ]
-    );
-    res.json({ ok: true, id: r.insertId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const personId = req.session.user.isAdmin && req.query.person_id
+      ? Number(req.query.person_id)
+      : Number(req.session.user.person_id);
 
-app.get('/api/activities', async (req, res) => {
-  try {
-    const q = String(req.query.q || '').trim();
-    const where = q ? 'WHERE (a.activities_detail LIKE ? OR p.fname LIKE ? OR p.lname LIKE ?)' : '';
-    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
-    const [items] = await pool.query(
-      `SELECT a.activities_data_id, a.activities_type_id, a.activities_start_date, a.activities_end_date,
-              a.activities_day, a.activities_detail, a.person_id,
-              at.activities_type_name, ds.department_sub_name,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_activities_data a
-       LEFT JOIN hrd_activities_type at ON at.activities_type_id = a.activities_type_id
-       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = a.department_sub_id
-       LEFT JOIN hrd_person p ON p.person_id = a.person_id
+    const [[general]] = await pool.query(
+      `SELECT p.person_id, p.cid, p.fname, p.lname, p.nickname, p.phone_number, p.email,
+              p.birthday, p.startwork_date, p.work_register_date, p.address_no, p.moo, p.village_name,
+              p.zipcode, p.salary, p.money_position, p.leave_accumulate, p.username,
+              pn.prename_name, pos.position_name, d.department_name, ds.department_sub_name,
+              pt.person_type_name, ps.person_status_name
+       FROM hrd_person p
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${where}
-       ORDER BY a.activities_start_date DESC, a.activities_data_id DESC
-       LIMIT 200`,
-      params
-    );
-    const [activityTypes] = await pool.query('SELECT activities_type_id, activities_type_name FROM hrd_activities_type ORDER BY activities_type_id');
-    res.json({ items, activityTypes });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/activities', requireAuth, async (req, res) => {
-  try {
-    const b = req.body;
-    const days = calcLeaveDays(b.activities_start_date, b.activities_end_date, 1);
-    const [r] = await pool.query(
-      `INSERT INTO hrd_activities_data (activities_type_id, activities_start_date, activities_end_date, activities_day, activities_detail, person_id, department_sub_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        Number(b.activities_type_id || 1),
-        b.activities_start_date,
-        b.activities_end_date,
-        days,
-        b.activities_detail || '',
-        req.session.user.person_id,
-        req.session.user.department_sub_id || 0,
-      ]
-    );
-    res.json({ ok: true, id: r.insertId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==================== PORTFOLIO (EDUCATION, AWARDS, INSIGNIA, NURSING) ====================
-app.get('/api/portfolio', async (req, res) => {
-  try {
-    const mine = req.query.mine === '1' && req.session.user;
-    const q = String(req.query.q || '').trim();
-    const personFilter = mine ? 'WHERE t.person_id = ?' : q ? 'WHERE (p.fname LIKE ? OR p.lname LIKE ?)' : '';
-    const params = mine ? [req.session.user.person_id] : q ? [`%${q}%`, `%${q}%`] : [];
-
-    const [educations] = await pool.query(
-      `SELECT t.education_data_id, t.education_date, t.grade, t.study_year, t.education_high,
-              ed.education_name, ins.institute_name,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_education_data t
-       LEFT JOIN hrd_education ed ON ed.education_id = t.education_id
-       LEFT JOIN hrd_institute ins ON ins.institute_id = t.institute_id
-       LEFT JOIN hrd_person p ON p.person_id = t.person_id
-       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${personFilter}
-       ORDER BY t.education_data_id DESC LIMIT 150`,
-      params
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
+       LEFT JOIN hrd_person_type pt ON pt.person_type_id = p.person_type_id
+       LEFT JOIN hrd_person_status ps ON ps.person_status_id = p.person_status_id
+       WHERE p.person_id = ? LIMIT 1`,
+      [personId]
     );
 
-    const [awards] = await pool.query(
-      `SELECT t.award_data_id, t.award_date, t.award_name, t.award_from, t.award_place,
-              at.award_type_name,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_award_data t
-       LEFT JOIN hrd_award_type at ON at.award_type_id = t.award_type_id
-       LEFT JOIN hrd_person p ON p.person_id = t.person_id
-       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${personFilter}
-       ORDER BY t.award_data_id DESC LIMIT 150`,
-      params
-    );
+    const [
+      [positions],
+      [salaries],
+      [educations],
+      [insignias],
+      [awards],
+      [disciplines],
+      [duties],
+      [welfares],
+      [statuses],
+    ] = await Promise.all([
+      pool.query(
+        `SELECT pd.*, pos.position_name, d.department_name, ds.department_sub_name
+         FROM hrd_position_data pd
+         LEFT JOIN hrd_position pos ON pos.position_id = pd.position_id
+         LEFT JOIN hrd_department d ON d.department_id = pd.department_id
+         LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = pd.department_sub_id
+         WHERE pd.person_id = ? ORDER BY pd.position_date DESC, pd.position_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT salary_id, salary_date, salary, salary_position, salary_pts, salary_ch8, salary_percent, salary_startdate, salary_enddate
+         FROM hrd_salary_data WHERE person_id = ? ORDER BY salary_date DESC, salary_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT t.education_data_id, t.education_date, t.grade, t.study_year, t.education_high,
+                ed.education_name, ins.institute_name
+         FROM hrd_education_data t
+         LEFT JOIN hrd_education ed ON ed.education_id = t.education_id
+         LEFT JOIN hrd_institute ins ON ins.institute_id = t.institute_id
+         WHERE t.person_id = ? ORDER BY t.education_date DESC, t.education_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT t.insignia_data_id, t.insignia_date, t.insignia_date_receive, t.insignia_book_number,
+                t.insignia_part, t.insignia_page, ins.insignia_name, ins.insignia_name_acronym
+         FROM hrd_insignia_data t
+         LEFT JOIN hrd_insignia ins ON ins.insignia_id = t.insignia_id
+         WHERE t.person_id = ? ORDER BY t.insignia_date DESC, t.insignia_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT t.award_data_id, t.award_date, t.award_name, t.award_from, t.award_give, t.award_place, t.award_detail,
+                at.award_type_name
+         FROM hrd_award_data t
+         LEFT JOIN hrd_award_type at ON at.award_type_id = t.award_type_id
+         WHERE t.person_id = ? ORDER BY t.award_date DESC, t.award_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT discipline_data_id, discipline_date, discipline_name, discipline_detail
+         FROM hrd_discipline_data WHERE person_id = ? ORDER BY discipline_date DESC, discipline_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT d.duty_data_id, d.duty_name, d.duty_startdate, d.duty_enddate, dt.duty_type_name
+         FROM hrd_duty_data d
+         LEFT JOIN hrd_duty_type dt ON dt.duty_type_id = d.duty_type_id
+         WHERE d.person_id = ? ORDER BY d.duty_startdate DESC, d.duty_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT w.welfare_data_id, w.welfare_date, w.welfare_name, wt.welfare_type_name
+         FROM hrd_welfare_data w
+         LEFT JOIN hrd_welfare_type wt ON wt.welfare_type_id = w.welfare_type
+         WHERE w.person_id = ? ORDER BY w.welfare_date DESC, w.welfare_data_id DESC`,
+        [personId]
+      ),
+      pool.query(
+        `SELECT s.person_status_data_id, s.person_status_date, ps.person_status_name, pt.person_type_name,
+                d.department_name, ds.department_sub_name
+         FROM hrd_person_status_data s
+         LEFT JOIN hrd_person_status ps ON ps.person_status_id = s.person_status_id
+         LEFT JOIN hrd_person_type pt ON pt.person_type_id = s.person_type_id
+         LEFT JOIN hrd_department d ON d.department_id = s.department_id
+         LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = s.department_sub_id
+         WHERE s.person_id = ? ORDER BY s.person_status_date DESC`,
+        [personId]
+      ),
+    ]);
 
-    const [insignias] = await pool.query(
-      `SELECT t.insignia_data_id, t.insignia_date, t.insignia_date_receive, t.insignia_book_number,
-              ins.insignia_name, ins.insignia_name_acronym,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_insignia_data t
-       LEFT JOIN hrd_insignia ins ON ins.insignia_id = t.insignia_id
-       LEFT JOIN hrd_person p ON p.person_id = t.person_id
-       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${personFilter}
-       ORDER BY t.insignia_data_id DESC LIMIT 150`,
-      params
-    );
-
-    const [nursings] = await pool.query(
-      `SELECT t.nursing_council_data_id, t.nursing_council_license_number, t.nursing_council_startdate,
-              t.nursing_council_enddate, t.cneu_demand,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
-       FROM hrd_nursing_council_data t
-       LEFT JOIN hrd_person p ON p.person_id = t.person_id
-       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       ${personFilter}
-       ORDER BY t.nursing_council_data_id DESC LIMIT 150`,
-      params
-    );
-
-    res.json({ educations, awards, insignias, nursings });
+    res.json({
+      general,
+      positions,
+      salaries,
+      educations,
+      insignias,
+      awards,
+      disciplines,
+      duties,
+      welfares,
+      statuses,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

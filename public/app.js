@@ -116,6 +116,7 @@ async function loadMaster() {
   fill('fDayType', m.dayTypes, 'leave_day_type_id', 'leave_day_type_name');
   fill('fAssignedId', m.persons, 'person_id', 'full_name', '-- ไม่ระบุ --');
   fill('fPersonId', m.persons, 'person_id', 'full_name', '-- ตัวเอง --');
+  fill('hrdPersonSelect', m.persons, 'person_id', 'full_name', '-- ข้อมูลของฉัน --');
 
   fill('trainTypeFilter', m.trainTypes, 'train_type_id', 'train_type_name', 'ทุกประเภทการอบรม');
   fill('tType', m.trainTypes, 'train_type_id', 'train_type_name', '-- เลือกประเภท --');
@@ -189,8 +190,6 @@ function switchTab(tab) {
     document.getElementById(`tab-${tab}`).classList.remove('hidden');
     if (tab === 'create') resetLeaveForm();
     if (tab === 'trains') loadTrains(1);
-    if (tab === 'duty') loadDuties();
-    if (tab === 'portfolio') loadPortfolio();
     if (tab === 'reports') loadReports();
     if (tab === 'admin') loadAdminLeaves(1);
   }
@@ -526,128 +525,129 @@ async function deleteTrain(id) {
   loadTrains(state.trainPage);
 }
 
-// ==================== DUTY & ACTIVITIES ====================
-function switchDutyPane(pane, btn) {
-  document.querySelectorAll('#tab-duty .seg-btn').forEach((b) => b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('dutyPane-duty').classList.toggle('hidden', pane !== 'duty');
-  document.getElementById('dutyPane-activity').classList.toggle('hidden', pane !== 'activity');
-  if (pane === 'duty') loadDuties();
-  else loadActivities();
+// ==================== HRD RECORD SECTIONS & SCREENSHOT MENUS ====================
+let currentHrdSection = 'general';
+
+const HRD_SECTION_TITLES = {
+  general: '👤 ข้อมูลทั่วไป',
+  position: '🪪 ข้อมูลตำแหน่ง กพ.7',
+  salary: '💰 ข้อมูลเงินเดือน',
+  education: '🎓 ข้อมูลการศึกษา',
+  insignia: '🎖️ ข้อมูลเครื่องราชอิสริยาภรณ์',
+  award: '🏆 ข้อมูลผลงานที่ภาคภูมิใจ',
+  discipline: '⚖️ ข้อมูลโทษทางวินัย',
+  duty: '📋 หน้าที่รับผิดชอบหลัก รอง',
+  welfare: '🛟 ข้อมูลสวัสดิการ',
+  status: '📈 ข้อมูลสถานะการทำงาน',
+};
+
+function openLeaveFormType(leaveTypeId, btn) {
+  switchTab('create');
+  document.querySelectorAll('.nav-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('fTypeId').value = String(leaveTypeId);
+  onLeaveTypeChange();
 }
 
-async function loadDuties() {
-  const q = document.getElementById('dutyQ').value;
-  const data = await api(`/api/duties?q=${encodeURIComponent(q)}`);
-  const dSel = document.getElementById('dType');
-  if (dSel && data.dutyTypes) {
-    dSel.innerHTML = data.dutyTypes.map((t) => `<option value="${t.duty_type_id}">${esc(t.duty_type_name)}</option>`).join('');
-  }
-  document.getElementById('dutiesTbody').innerHTML = data.items.map((d) => `
-    <tr>
-      <td>#${d.duty_data_id}</td>
-      <td><strong>${esc(d.duty_name)}</strong></td>
-      <td>${esc(d.duty_type_name || '-')}</td>
-      <td>${esc(d.full_name || '-')}</td>
-      <td><small>${esc(d.department_sub_name || '-')}</small></td>
-      <td style="white-space:nowrap">${fmtThaiDate(d.duty_startdate)} - ${fmtThaiDate(d.duty_enddate)}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;">ไม่พบข้อมูลเวร</td></tr>';
-}
-
-function openDutyModal() {
+function openHrdSection(sec, btn) {
   if (!state.user) return openLoginModal();
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('dStart').value = today;
-  document.getElementById('dEnd').value = today;
-  document.getElementById('dutyModal').classList.remove('hidden');
+  currentHrdSection = sec;
+  document.querySelectorAll('.nav-pill').forEach((b) => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
+  document.getElementById('tab-hrd-record').classList.remove('hidden');
+  document.getElementById('hrdSecTitle').textContent = HRD_SECTION_TITLES[sec] || 'ข้อมูลบุคลากร';
+  loadHrdRecord(sec);
 }
 
-async function submitDuty(e) {
-  e.preventDefault();
-  await api('/api/duties', {
-    method: 'POST',
-    body: JSON.stringify({
-      duty_name: document.getElementById('dName').value,
-      duty_type_id: document.getElementById('dType').value,
-      duty_startdate: document.getElementById('dStart').value,
-      duty_enddate: document.getElementById('dEnd').value,
-    }),
-  });
-  closeModal('dutyModal');
-  loadDuties();
-}
+async function loadHrdRecord(sec) {
+  const box = document.getElementById('hrdRecordContent');
+  box.innerHTML = '<div style="padding:20px;color:#64748b;">⏳ กำลังโหลดข้อมูล...</div>';
+  const pid = document.getElementById('hrdPersonSelect')?.value || '';
+  const data = await api(`/api/hrd/record${pid ? `?person_id=${pid}` : ''}`);
 
-async function loadActivities() {
-  const q = document.getElementById('actQ').value;
-  const data = await api(`/api/activities?q=${encodeURIComponent(q)}`);
-  const aSel = document.getElementById('aType');
-  if (aSel && data.activityTypes) {
-    aSel.innerHTML = data.activityTypes.map((t) => `<option value="${t.activities_type_id}">${esc(t.activities_type_name)}</option>`).join('');
-  }
-  document.getElementById('activitiesTbody').innerHTML = data.items.map((a) => `
-    <tr>
-      <td>#${a.activities_data_id}</td>
-      <td><strong>${esc(a.activities_detail || '-')}</strong></td>
-      <td>${esc(a.activities_type_name || '-')}</td>
-      <td>${esc(a.full_name || '-')}</td>
-      <td style="white-space:nowrap">${fmtThaiDate(a.activities_start_date)} - ${fmtThaiDate(a.activities_end_date)}</td>
-      <td>${a.activities_day || 1} วัน</td>
-    </tr>
-  `).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;">ไม่พบข้อมูลกิจกรรม</td></tr>';
-}
-
-function openActivityModal() {
-  if (!state.user) return openLoginModal();
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById('aStart').value = today;
-  document.getElementById('aEnd').value = today;
-  document.getElementById('activityModal').classList.remove('hidden');
-}
-
-async function submitActivity(e) {
-  e.preventDefault();
-  await api('/api/activities', {
-    method: 'POST',
-    body: JSON.stringify({
-      activities_detail: document.getElementById('aDetail').value,
-      activities_type_id: document.getElementById('aType').value,
-      activities_start_date: document.getElementById('aStart').value,
-      activities_end_date: document.getElementById('aEnd').value,
-    }),
-  });
-  closeModal('activityModal');
-  loadActivities();
-}
-
-// ==================== PORTFOLIO ====================
-async function loadPortfolio() {
-  const q = document.getElementById('portQ').value;
-  const mine = document.getElementById('portMine').checked ? '1' : '0';
-  const data = await api(`/api/portfolio?q=${encodeURIComponent(q)}&mine=${mine}`);
-
-  const box = (title, headers, rows) => `
-    <div class="report-box">
-      <h3>${title}</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
-          <tbody>${rows || `<tr><td colspan="${headers.length}" style="text-align:center;color:#64748b;">ไม่มีข้อมูล</td></tr>`}</tbody>
-        </table>
-      </div>
+  const tbl = (headers, rowsHtml) => `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="${headers.length}" style="text-align:center;color:#64748b;padding:20px;">ไม่พบข้อมูล</td></tr>`}</tbody>
+      </table>
     </div>
   `;
 
-  const eduRows = data.educations.map((e) => `<tr><td>${esc(e.full_name)}</td><td>${esc(e.education_name || '-')}</td><td>${esc(e.institute_name || '-')}</td><td>${e.grade || '-'}</td></tr>`).join('');
-  const awdRows = data.awards.map((a) => `<tr><td>${esc(a.full_name)}</td><td>${esc(a.award_name || '-')}</td><td>${esc(a.award_from || '-')}</td><td>${fmtThaiDate(a.award_date)}</td></tr>`).join('');
-  const insRows = data.insignias.map((i) => `<tr><td>${esc(i.full_name)}</td><td>${esc(i.insignia_name || i.insignia_name_acronym || '-')}</td><td>${esc(i.insignia_book_number || '-')}</td><td>${fmtThaiDate(i.insignia_date_receive)}</td></tr>`).join('');
-  const nurRows = data.nursings.map((n) => `<tr><td>${esc(n.full_name)}</td><td>${esc(n.nursing_council_license_number || '-')}</td><td>${fmtThaiDate(n.nursing_council_enddate)}</td><td>${n.cneu_demand || '-'}</td></tr>`).join('');
+  if (sec === 'general') {
+    const g = data.general || {};
+    const name = `${g.prename_name || ''}${g.fname || ''} ${g.lname || ''}`.trim();
+    const addr = [g.address_no, g.moo ? `ม.${g.moo}` : '', g.village_name, g.zipcode].filter(Boolean).join(' ') || '-';
+    box.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;font-size:14px;background:#fff;padding:18px;border-radius:14px;border:1px solid #e2e8f0;">
+        <div><strong>ชื่อ-นามสกุล:</strong> ${esc(name || '-')}</div>
+        <div><strong>เลขบัตรประชาชน:</strong> ${esc(g.cid || '-')}</div>
+        <div><strong>ตำแหน่ง:</strong> ${esc(g.position_name || '-')}</div>
+        <div><strong>กลุ่มงาน:</strong> ${esc(g.department_name || '-')} / ${esc(g.department_sub_name || '-')}</div>
+        <div><strong>ประเภทบุคลากร:</strong> ${esc(g.person_type_name || '-')}</div>
+        <div><strong>สถานะการทำงาน:</strong> ${esc(g.person_status_name || '-')}</div>
+        <div><strong>วันเกิด:</strong> ${fmtThaiDate(g.birthday)}</div>
+        <div><strong>วันที่เริ่มบรรจุ/ทำงาน:</strong> ${fmtThaiDate(g.startwork_date || g.work_register_date)}</div>
+        <div><strong>เบอร์โทรศัพท์:</strong> ${esc(g.phone_number || '-')}</div>
+        <div><strong>อีเมล:</strong> ${esc(g.email || '-')}</div>
+        <div><strong>เงินเดือนปัจจุบัน:</strong> ${Number(g.salary || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</div>
+        <div><strong>วันลาพักผ่อนสะสม:</strong> ${Number(g.leave_accumulate || 0)} วัน</div>
+        <div style="grid-column:1/-1;"><strong>ที่อยู่:</strong> ${esc(addr)}</div>
+      </div>
+    `;
+  } else if (sec === 'position') {
+    const rows = data.positions.map((r) => `<tr><td>${fmtThaiDate(r.position_date)}</td><td>${esc(r.position_number || '-')}</td><td><strong>${esc(r.position_name || '-')}</strong></td><td>${esc(r.department_name || '-')}</td><td>${Number(r.position_salary || 0).toLocaleString()}</td><td>${esc(r.position_reference || '-')}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่', 'เลขที่ตำแหน่ง', 'ตำแหน่ง', 'กลุ่มงาน', 'เงินเดือน', 'อ้างอิง/คำสั่ง'], rows);
+  } else if (sec === 'salary') {
+    const rows = data.salaries.map((r) => `<tr><td>${fmtThaiDate(r.salary_date)}</td><td><strong>${Number(r.salary || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></td><td>${Number(r.salary_position || 0).toLocaleString()}</td><td>${Number(r.salary_pts || 0).toLocaleString()}</td><td>${r.salary_percent ?? '-'}%</td><td>${fmtThaiDate(r.salary_startdate)} - ${fmtThaiDate(r.salary_enddate)}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่', 'เงินเดือน', 'เงินประจำตำแหน่ง', 'พ.ต.ส.', 'ร้อยละเลื่อน', 'ช่วงเวลา'], rows);
+  } else if (sec === 'education') {
+    const rows = data.educations.map((r) => `<tr><td>${fmtThaiDate(r.education_date)}</td><td><strong>${esc(r.education_name || '-')}</strong></td><td>${esc(r.institute_name || '-')}</td><td>${r.grade || '-'}</td><td>${r.education_high === 'Y' ? 'วุฒิสูงสุด' : '-'}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่สำเร็จ', 'ระดับการศึกษา', 'สถาบันการศึกษา', 'เกรดเฉลี่ย', 'หมายเหตุ'], rows);
+  } else if (sec === 'insignia') {
+    const rows = data.insignias.map((r) => `<tr><td>${fmtThaiDate(r.insignia_date)}</td><td><strong>${esc(r.insignia_name || r.insignia_name_acronym || '-')}</strong></td><td>${esc(r.insignia_book_number || '-')}</td><td>${esc(r.insignia_part || '-')} / ${esc(r.insignia_page || '-')}</td><td>${fmtThaiDate(r.insignia_date_receive)}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่', 'ชั้นตราเครื่องราชฯ', 'เล่มที่', 'ตอน / หน้า', 'วันที่ได้รับ'], rows);
+  } else if (sec === 'award') {
+    const rows = data.awards.map((r) => `<tr><td>${fmtThaiDate(r.award_date)}</td><td><strong>${esc(r.award_name || '-')}</strong></td><td>${esc(r.award_type_name || '-')}</td><td>${esc(r.award_from || '-')}</td><td>${esc(r.award_place || '-')}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่ได้รับ', 'ชื่อรางวัล/ผลงาน', 'ประเภท', 'หน่วยงานที่มอบ', 'สถานที่'], rows);
+  } else if (sec === 'discipline') {
+    const rows = data.disciplines.map((r) => `<tr><td>${fmtThaiDate(r.discipline_date)}</td><td><strong>${esc(r.discipline_name || '-')}</strong></td><td>${esc(r.discipline_detail || '-')}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่', 'หัวข้อ', 'รายละเอียด'], rows);
+  } else if (sec === 'duty') {
+    const rows = data.duties.map((r) => `<tr><td><strong>${esc(r.duty_type_name || '-')}</strong></td><td>${esc(r.duty_name || '-')}</td><td style="white-space:nowrap">${fmtThaiDate(r.duty_startdate)} - ${fmtThaiDate(r.duty_enddate)}</td></tr>`).join('');
+    box.innerHTML = tbl(['ประเภทหน้าที่', 'หน้าที่รับผิดชอบ', 'ช่วงเวลา'], rows);
+  } else if (sec === 'welfare') {
+    const rows = data.welfares.map((r) => `<tr><td>${fmtThaiDate(r.welfare_date)}</td><td>${esc(r.welfare_type_name || '-')}</td><td><strong>${esc(r.welfare_name || '-')}</strong></td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่', 'ประเภทสวัสดิการ', 'รายละเอียด'], rows);
+  } else if (sec === 'status') {
+    const rows = data.statuses.map((r) => `<tr><td>${fmtThaiDate(r.person_status_date)}</td><td><strong>${esc(r.person_status_name || '-')}</strong></td><td>${esc(r.person_type_name || '-')}</td><td>${esc(r.department_name || '-')} / ${esc(r.department_sub_name || '-')}</td></tr>`).join('');
+    box.innerHTML = tbl(['วันที่มีผล', 'สถานะการทำงาน', 'ประเภทบุคลากร', 'สังกัด'], rows);
+  }
+}
 
-  document.getElementById('portfolioContent').innerHTML =
-    box('🎓 ประวัติการศึกษา (hrd_education_data)', ['บุคลากร', 'ระดับการศึกษา', 'สถาบัน', 'เกรด'], eduRows) +
-    box('🏆 รางวัลเชิดชูเกียรติ (hrd_award_data)', ['บุคลากร', 'ชื่อรางวัล', 'หน่วยงานที่มอบ', 'วันที่'], awdRows) +
-    box('🎖️ เครื่องราชอิสริยาภรณ์ (hrd_insignia_data)', ['บุคลากร', 'ชั้นตรา', 'เลขที่/เล่ม', 'วันที่รับ'], insRows) +
-    box('🩺 สภาการพยาบาล / CNEU (hrd_nursing_council_data)', ['บุคลากร', 'เลขใบอนุญาต', 'วันหมดอายุ', 'CNEU'], nurRows);
+async function submitChangePassword(e) {
+  e.preventDefault();
+  if (!state.user) return openLoginModal();
+  const oldPassword = document.getElementById('cpOld').value;
+  const newPassword = document.getElementById('cpNew').value;
+  const confirmPass = document.getElementById('cpConfirm').value;
+  if (newPassword !== confirmPass) {
+    alert('รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน');
+    return;
+  }
+  try {
+    await api('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+    alert('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว');
+    document.getElementById('cpOld').value = '';
+    document.getElementById('cpNew').value = '';
+    document.getElementById('cpConfirm').value = '';
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 // ==================== REPORTS ====================
