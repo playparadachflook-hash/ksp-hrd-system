@@ -225,11 +225,18 @@ app.get('/api/leaves/stats', async (req, res) => {
       let usedVacation = 0;
       let usedSick = 0;
       let usedBusiness = 0;
+      let usedMaternity = 0;
+      let usedWifeBirth = 0;
+      let usedOrdain = 0;
       myRows.forEach((r) => {
         const d = Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
-        if (Number(r.hrd_leave_type_id) === 5) usedVacation += d;
-        else if (Number(r.hrd_leave_type_id) === 1) usedSick += d;
-        else if (Number(r.hrd_leave_type_id) === 4) usedBusiness += d;
+        const tid = Number(r.hrd_leave_type_id);
+        if (tid === 5) usedVacation += d;
+        else if (tid === 1) usedSick += d;
+        else if (tid === 4) usedBusiness += d;
+        else if (tid === 2) usedMaternity += d;
+        else if (tid === 3) usedWifeBirth += d;
+        else if (tid === 6) usedOrdain += d;
       });
       const accumulate = Number(req.session.user.leave_accumulate || 0);
       const totalRight = accumulate + 10;
@@ -242,6 +249,14 @@ app.get('/api/leaves/stats', async (req, res) => {
         remainingVacation: Math.max(0, totalRight - usedVacation),
         usedSick,
         usedBusiness,
+        entitlements: [
+          { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: totalRight, used: usedVacation, remain: Math.max(0, totalRight - usedVacation) },
+          { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: 60, used: usedSick, remain: Math.max(0, 60 - usedSick) },
+          { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: 45, used: usedBusiness, remain: Math.max(0, 45 - usedBusiness) },
+          { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: 90, used: usedMaternity, remain: Math.max(0, 90 - usedMaternity) },
+          { typeId: 3, name: 'ช่วยภริยาคลอด', icon: '👶', color: '#9333ea', max: 15, used: usedWifeBirth, remain: Math.max(0, 15 - usedWifeBirth) },
+          { typeId: 6, name: 'ลาอุปสมบท/ฮัจย์', icon: '🙏', color: '#2563eb', max: 120, used: usedOrdain, remain: Math.max(0, 120 - usedOrdain) },
+        ],
       };
     }
 
