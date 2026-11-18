@@ -399,10 +399,14 @@ function buildLeaveWhere(query, user) {
     params.push(Number(allow_id));
   }
   if (department_id) {
-    where.push('l.department_id = ?');
+    where.push('COALESCE(NULLIF(l.department_id, 0), p.department_id) = ?');
     params.push(Number(department_id));
   }
-  if (mine === '1' && user) {
+  const canViewAll = Boolean(user?.isAdmin && query.all === '1');
+  if (!canViewAll && user) {
+    where.push('l.person_id = ?');
+    params.push(user.person_id);
+  } else if (mine === '1' && user) {
     where.push('l.person_id = ?');
     params.push(user.person_id);
   }
@@ -420,6 +424,7 @@ function buildLeaveWhere(query, user) {
 
 app.get('/api/leaves/calendar', async (req, res) => {
   try {
+    if (!req.session.user) return res.json({ items: [] });
     const year = Number(req.query.year || new Date().getFullYear());
     const month = Number(req.query.month || new Date().getMonth() + 1);
     const start = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -434,7 +439,8 @@ app.get('/api/leaves/calendar', async (req, res) => {
       extra += ' AND COALESCE(NULLIF(l.department_id, 0), p.department_id) = ?';
       params.push(Number(req.query.department_id));
     }
-    if (req.query.mine === '1' && req.session.user) {
+    const canViewAll = Boolean(req.session.user.isAdmin && req.query.all === '1');
+    if (!canViewAll || req.query.mine === '1') {
       extra += ' AND l.person_id = ?';
       params.push(req.session.user.person_id);
     }
@@ -460,6 +466,9 @@ app.get('/api/leaves/calendar', async (req, res) => {
 
 app.get('/api/leaves', async (req, res) => {
   try {
+    if (!req.session.user) {
+      return res.json({ items: [], total: 0, page: 1, totalPages: 1 });
+    }
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(100, Math.max(10, Number(req.query.limit || 25)));
     const offset = (page - 1) * limit;
@@ -577,10 +586,14 @@ async function getLeaveWithStats(id) {
   return { leave, stats: { prevVacation, prevSick, prevBusiness, prevMaternity, lastLeave } };
 }
 
-app.get('/api/leaves/:id', async (req, res) => {
+app.get('/api/leaves/:id', requireAuth, async (req, res) => {
   try {
     const data = await getLeaveWithStats(req.params.id);
     if (!data) return res.status(404).json({ error: 'ไม่พบข้อมูลใบลา' });
+    const isOwner = Number(data.leave.person_id) === Number(req.session.user.person_id);
+    if (!req.session.user.isAdmin && !isOwner) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ดูข้อมูลใบลาของผู้อื่น' });
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

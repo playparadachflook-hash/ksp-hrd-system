@@ -6,6 +6,8 @@ const state = {
   viewMode: 'calendar',
   calYear: new Date().getFullYear(),
   calMonth: new Date().getMonth() + 1,
+  adminCalYear: new Date().getFullYear(),
+  adminCalMonth: new Date().getMonth() + 1,
   page: 1,
   trainPage: 1,
   adminPage: 1,
@@ -113,7 +115,10 @@ async function loadMaster() {
   };
 
   fill('filterType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
-  fill('filterDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
+  fill('adminFilterDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
+  fill('adminFilterType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
+  fill('adminCalDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
+  fill('adminCalType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('fTypeId', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name');
   fill('fDayType', m.dayTypes, 'leave_day_type_id', 'leave_day_type_name');
   fill('fAssignedId', m.persons, 'person_id', 'full_name', '-- ไม่ระบุ --');
@@ -227,7 +232,7 @@ function switchTab(tab) {
     setViewMode('table', true);
   } else if (tab === 'leaves') {
     document.getElementById('tab-leaves').classList.remove('hidden');
-    document.getElementById('leavesPanelTitle').textContent = state.viewMode === 'calendar' ? 'ปฏิทินการลาบุคลากร' : 'รายการใบลาบุคลากร';
+    document.getElementById('leavesPanelTitle').textContent = state.viewMode === 'calendar' ? 'ปฏิทินการลาของฉัน' : 'รายการใบลาของฉัน';
     if (state.viewMode === 'calendar') loadCalendar();
     else loadLeaves(1);
   } else {
@@ -272,8 +277,7 @@ async function loadCalendar() {
     year: state.calYear,
     month: state.calMonth,
     type_id: document.getElementById('filterType').value,
-    department_id: document.getElementById('filterDept').value,
-    mine: state.currentTab === 'mine' ? '1' : '0',
+    mine: '1',
   });
   const data = await api(`/api/leaves/calendar?${params.toString()}`);
   const firstDay = new Date(state.calYear, state.calMonth - 1, 1);
@@ -326,13 +330,17 @@ function resetFilters() {
   document.getElementById('filterQ').value = '';
   document.getElementById('filterType').value = '';
   document.getElementById('filterStatus').value = '';
-  document.getElementById('filterDept').value = '';
   applyFilters();
 }
 
 async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
   state.page = page;
-  const mine = forceMine || state.currentTab === 'mine' ? '1' : '0';
+  if (!state.user) {
+    document.getElementById('leavesTbody').innerHTML =
+      '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:24px;">กรุณา <a href="#" onclick="openLoginModal();return false;">เข้าสู่ระบบ</a> เพื่อดูรายการใบลาของคุณ</td></tr>';
+    document.getElementById('leavesPagination').innerHTML = '';
+    return;
+  }
   const params = new URLSearchParams({
     page,
     limit: 25,
@@ -341,8 +349,7 @@ async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
     year_name: exactDate ? '' : state.fiscalYear,
     type_id: document.getElementById('filterType').value,
     allow_id: document.getElementById('filterStatus').value,
-    department_id: document.getElementById('filterDept').value,
-    mine,
+    mine: '1',
   });
   const data = await api(`/api/leaves?${params.toString()}`);
   const tbody = document.getElementById('leavesTbody');
@@ -825,22 +832,92 @@ async function loadReports() {
     tbl('บุคลากรที่ลาสูงสุด 20 อันดับ', ['ชื่อ-สกุล / กลุ่มงาน', 'ครั้ง', 'วันลา'], topRows);
 }
 
-// ==================== ADMIN & AUTO UPDATE ====================
+// ==================== ADMIN BACKEND & AUTO UPDATE ====================
 function switchAdminPane(pane, btn) {
   document.querySelectorAll('.admin-subtabs .seg-btn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
-  ['approve', 'persons', 'update'].forEach((p) => {
+  ['approve', 'calendar', 'persons', 'update'].forEach((p) => {
     document.getElementById(`adminPane-${p}`).classList.toggle('hidden', p !== pane);
   });
   if (pane === 'approve') loadAdminLeaves(1);
+  if (pane === 'calendar') loadAdminCalendar();
   if (pane === 'persons') loadPersons();
   if (pane === 'update') checkSystemUpdate();
 }
 
+function changeAdminCalMonth(delta) {
+  state.adminCalMonth += delta;
+  if (state.adminCalMonth < 1) { state.adminCalMonth = 12; state.adminCalYear--; }
+  if (state.adminCalMonth > 12) { state.adminCalMonth = 1; state.adminCalYear++; }
+  loadAdminCalendar();
+}
+
+function goAdminCalToday() {
+  const n = new Date();
+  state.adminCalYear = n.getFullYear();
+  state.adminCalMonth = n.getMonth() + 1;
+  loadAdminCalendar();
+}
+
+async function loadAdminCalendar() {
+  document.getElementById('adminCalMonthTitle').textContent =
+    `${THAI_FULL_MONTHS[state.adminCalMonth - 1]} พ.ศ. ${state.adminCalYear + 543}`;
+  const params = new URLSearchParams({
+    year: state.adminCalYear,
+    month: state.adminCalMonth,
+    department_id: document.getElementById('adminCalDept').value,
+    type_id: document.getElementById('adminCalType').value,
+    all: '1',
+  });
+  const data = await api(`/api/leaves/calendar?${params.toString()}`);
+  const firstDay = new Date(state.adminCalYear, state.adminCalMonth - 1, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(state.adminCalYear, state.adminCalMonth, 0).getDate();
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const dayNum = i - startOffset + 1;
+    const d = new Date(state.adminCalYear, state.adminCalMonth - 1, dayNum);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const isOther = dayNum < 1 || dayNum > daysInMonth;
+    const dayItems = data.items.filter((x) => iso >= String(x.leave_startdate).slice(0, 10) && iso <= String(x.leave_enddate).slice(0, 10));
+
+    const chips = dayItems.slice(0, 3).map((r) => `
+      <div class="cal-chip" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
+           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}"
+           onclick="openLeaveDetail(${r.hrd_leave_id})">
+        ${esc(r.full_name)}
+      </div>
+    `).join('');
+    const more = dayItems.length > 3 ? `<div class="cal-more">+ อีก ${dayItems.length - 3} คน</div>` : '';
+
+    html += `
+      <div class="cal-cell ${isOther ? 'other-month' : ''} ${iso === todayIso ? 'today' : ''}">
+        <div class="cal-cell-top">
+          <span>${d.getDate()}</span>
+          ${dayItems.length ? `<span class="cal-count">${dayItems.length}</span>` : ''}
+        </div>
+        ${chips}${more}
+      </div>
+    `;
+  }
+  document.getElementById('adminCalendarGrid').innerHTML = html;
+}
+
 async function loadAdminLeaves(page = 1) {
   state.adminPage = page;
-  const allow = document.getElementById('adminFilterAllow').value;
-  const data = await api(`/api/leaves?page=${page}&limit=20&allow_id=${allow}&year_name=${state.fiscalYear}`);
+  const params = new URLSearchParams({
+    page,
+    limit: 20,
+    all: '1',
+    allow_id: document.getElementById('adminFilterAllow').value,
+    department_id: document.getElementById('adminFilterDept').value,
+    type_id: document.getElementById('adminFilterType').value,
+    q: document.getElementById('adminLeaveQ').value,
+    year_name: state.fiscalYear,
+  });
+  const data = await api(`/api/leaves?${params.toString()}`);
   document.getElementById('adminLeavesTbody').innerHTML = data.items.map((r) => `
     <tr>
       <td><strong>#${r.hrd_leave_id}</strong></td>
@@ -850,6 +927,7 @@ async function loadAdminLeaves(page = 1) {
       <td>${r.calc_days} วัน</td>
       <td><span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name)}</span></td>
       <td style="white-space:nowrap">
+        <button class="btn-soft btn-sm" onclick="openLeaveDetail(${r.hrd_leave_id})">ดู</button>
         <button class="btn-aurora btn-sm" onclick="approveLeave(${r.hrd_leave_id}, 2)">✓ อนุญาต</button>
         <button class="btn-danger btn-sm" onclick="approveLeave(${r.hrd_leave_id}, 3)">✕ ไม่อนุญาต</button>
         <button class="btn-soft btn-sm" onclick="openPdfModal('ใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ PDF</button>
