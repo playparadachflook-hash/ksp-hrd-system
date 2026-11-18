@@ -22,6 +22,10 @@
       </div>
 
       <nav class="side-nav">
+        <button class="nav-pill hidden" id="navMine" data-tab="mine" onclick="switchTab('mine')">
+          <span class="nav-ico">📁</span><span>ประวัติการลาของฉัน</span>
+        </button>
+
         <div class="nav-group-label">ข้อมูลบุคลากร (กพ.7)</div>
         <button class="nav-pill" data-sec="general" onclick="openHrdSection('general', this)">
           <span class="nav-ico">👤</span><span>ข้อมูลทั่วไป</span>
@@ -29,26 +33,8 @@
         <button class="nav-pill" data-sec="position" onclick="openHrdSection('position', this)">
           <span class="nav-ico">🪪</span><span>ข้อมูลตำแหน่ง กพ.7</span>
         </button>
-        <button class="nav-pill" data-sec="salary" onclick="openHrdSection('salary', this)">
-          <span class="nav-ico">💰</span><span>ข้อมูลเงินเดือน</span>
-        </button>
-        <button class="nav-pill" data-sec="education" onclick="openHrdSection('education', this)">
-          <span class="nav-ico">🎓</span><span>ข้อมูลการศึกษา</span>
-        </button>
-        <button class="nav-pill" data-sec="insignia" onclick="openHrdSection('insignia', this)">
-          <span class="nav-ico">🎖️</span><span>ข้อมูลเครื่องราชอิสริยาภรณ์</span>
-        </button>
-        <button class="nav-pill" data-sec="award" onclick="openHrdSection('award', this)">
-          <span class="nav-ico">🏆</span><span>ข้อมูลผลงานที่ภาคภูมิใจ</span>
-        </button>
         <button class="nav-pill" data-sec="discipline" onclick="openHrdSection('discipline', this)">
           <span class="nav-ico">⚖️</span><span>ข้อมูลโทษทางวินัย</span>
-        </button>
-        <button class="nav-pill" data-sec="duty" onclick="openHrdSection('duty', this)">
-          <span class="nav-ico">📋</span><span>หน้าที่รับผิดชอบหลัก รอง</span>
-        </button>
-        <button class="nav-pill" data-sec="welfare" onclick="openHrdSection('welfare', this)">
-          <span class="nav-ico">🛟</span><span>ข้อมูลสวัสดิการ</span>
         </button>
         <button class="nav-pill" data-sec="status" onclick="openHrdSection('status', this)">
           <span class="nav-ico">📈</span><span>ข้อมูลสถานะการทำงาน</span>
@@ -72,9 +58,6 @@
         </button>
         <button class="nav-pill" data-leave-type="12" onclick="openLeaveFormType(12, this)">
           <span class="nav-ico">🔄</span><span>ยกเลิกการลา</span>
-        </button>
-        <button class="nav-pill hidden" id="navMine" data-tab="mine" onclick="switchTab('mine')">
-          <span class="nav-ico">📁</span><span>ประวัติการลาของฉัน</span>
         </button>
 
         <div class="nav-group-label">อบรม / ไปราชการ / บัญชี</div>
