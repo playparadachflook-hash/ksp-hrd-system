@@ -136,7 +136,12 @@ async function loadDashboardStats() {
   document.getElementById('kpiTotal').textContent = data.totals.total.toLocaleString();
   document.getElementById('kpiPending').textContent = data.totals.pending.toLocaleString();
   document.getElementById('kpiApproved').textContent = data.totals.approved.toLocaleString();
-  document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
+  if (state.user) {
+    const cnt = Number(data.totals.myTrains || 0);
+    document.getElementById('kpiTrainPerson').textContent = cnt > 0 ? `เคยอบรม ${cnt} ครั้ง` : 'ยังไม่เคยอบรม';
+  } else {
+    document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
+  }
 
   // Circular Ring for Vacation Balance
   const fg = document.getElementById('vacRingFg');
@@ -147,28 +152,46 @@ async function loadDashboardStats() {
     fg.style.strokeDashoffset = String(circ * (1 - pct));
     document.getElementById('vacRemainNum').textContent = b.remainingVacation;
     document.getElementById('vacBalanceDetail').innerHTML =
-      `สะสม ${b.accumulate} + ปีนี้ ${b.annualRight} = <strong>${b.totalRight}</strong> วัน (ใช้แล้ว ${b.usedVacation} วัน)`;
+      `สะสม ${b.accumulate} + ปีนี้ ${b.annualRight} = <strong>${b.totalRight}</strong> วัน (ใช้แล้ว ${b.usedVacation} วัน)<br><small style="color:#0284c7;">คลิกเพื่อดูข้อมูลการลาพักผ่อน →</small>`;
   } else {
     fg.style.strokeDashoffset = String(circ * 0.65);
     document.getElementById('vacRemainNum').textContent = '-';
     document.getElementById('vacBalanceDetail').textContent = 'เข้าสู่ระบบเพื่อดูยอดวันลาพักผ่อน';
   }
 
-  // Breakdown bars
+  // Breakdown bars (User's Top 5)
   const top5 = data.byType.slice(0, 5);
   const maxCnt = Math.max(1, ...top5.map((t) => Number(t.cnt || 0)));
-  document.getElementById('typeBreakdownBars').innerHTML = top5
-    .map((t) => {
-      const pct = Math.round((Number(t.cnt || 0) / maxCnt) * 100);
-      const color = t.graph_color || '#0d9488';
-      return `
-        <div class="bar-row">
-          <div class="bar-meta"><span>${esc(t.hrd_leave_type_name)}</span><strong>${Number(t.cnt).toLocaleString()}</strong></div>
-          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${esc(color)};"></div></div>
-        </div>
-      `;
-    })
-    .join('');
+  const totalTyped = top5.reduce((s, t) => s + Number(t.cnt || 0), 0);
+  if (state.user && totalTyped === 0) {
+    document.getElementById('typeBreakdownBars').innerHTML = '<div style="color:#64748b;font-size:13px;padding:18px 0;text-align:center;">ยังไม่มีประวัติการลาในปีงบประมาณนี้</div>';
+  } else {
+    document.getElementById('typeBreakdownBars').innerHTML = top5
+      .map((t) => {
+        const pct = Math.round((Number(t.cnt || 0) / maxCnt) * 100);
+        const color = t.graph_color || '#0d9488';
+        return `
+          <div class="bar-row" style="cursor:pointer;" onclick="openMyLeavesFilter('${t.hrd_leave_type_id}', '')">
+            <div class="bar-meta"><span>${esc(t.hrd_leave_type_name)}</span><strong>${Number(t.cnt).toLocaleString()} ครั้ง</strong></div>
+            <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${esc(color)};"></div></div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+}
+
+function openMyLeavesFilter(typeId, statusId) {
+  if (!state.user) return openLoginModal();
+  document.getElementById('filterType').value = typeId || '';
+  document.getElementById('filterStatus').value = statusId || '';
+  switchTab('mine');
+}
+
+function openMyTrains() {
+  if (!state.user) return openLoginModal();
+  switchTab('trains');
+  loadTrains(1, true);
 }
 
 // ==================== TABS ====================
@@ -451,13 +474,14 @@ async function submitLeave(e) {
 }
 
 // ==================== TRAINING ====================
-async function loadTrains(page = 1) {
+async function loadTrains(page = 1, mineOnly = false) {
   state.trainPage = page;
   const params = new URLSearchParams({
     page,
     limit: 20,
     q: document.getElementById('trainQ').value,
     train_type_id: document.getElementById('trainTypeFilter').value,
+    mine: mineOnly ? '1' : '0',
   });
   const data = await api(`/api/trains?${params.toString()}`);
   document.getElementById('trainsTbody').innerHTML = data.items.map((t) => `

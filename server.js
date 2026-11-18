@@ -175,25 +175,35 @@ app.get('/api/master', async (req, res) => {
 app.get('/api/leaves/stats', async (req, res) => {
   try {
     const fy = Number(req.query.year_name || getFiscalYear());
+    const uid = req.session.user ? Number(req.session.user.person_id) : null;
+
     const [[totals]] = await pool.query(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN allow_id = 1 THEN 1 ELSE 0 END) AS pending,
               SUM(CASE WHEN allow_id = 2 THEN 1 ELSE 0 END) AS approved,
               SUM(CASE WHEN allow_id = 3 THEN 1 ELSE 0 END) AS rejected
        FROM hrd_leave_data
-       WHERE year_name = ?`,
-      [fy]
+       WHERE year_name = ? ${uid !== null ? 'AND person_id = ?' : ''}`,
+      uid !== null ? [fy, uid] : [fy]
     );
     const [byType] = await pool.query(
       `SELECT lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color, COUNT(l.hrd_leave_id) AS cnt
        FROM hrd_leave_type lt
-       LEFT JOIN hrd_leave_data l ON l.hrd_leave_type_id = lt.hrd_leave_type_id AND l.year_name = ?
+       LEFT JOIN hrd_leave_data l
+         ON l.hrd_leave_type_id = lt.hrd_leave_type_id
+        AND l.year_name = ?
+        ${uid !== null ? 'AND l.person_id = ?' : ''}
        GROUP BY lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color
        ORDER BY cnt DESC`,
-      [fy]
+      uid !== null ? [fy, uid] : [fy]
     );
     const [[trainStats]] = await pool.query('SELECT COUNT(*) AS total_trains FROM hrd_train_data');
     const [[personStats]] = await pool.query('SELECT COUNT(*) AS total_persons FROM hrd_person');
+    let myTrains = 0;
+    if (uid !== null) {
+      const [[myTr]] = await pool.query('SELECT COUNT(*) AS cnt FROM hrd_train_data WHERE person_id = ?', [uid]);
+      myTrains = Number(myTr?.cnt || 0);
+    }
 
     let myBalance = null;
     if (req.session.user) {
@@ -228,6 +238,7 @@ app.get('/api/leaves/stats', async (req, res) => {
 
     res.json({
       fiscalYear: fy,
+      isPersonal: uid !== null,
       totals: {
         total: Number(totals?.total || 0),
         pending: Number(totals?.pending || 0),
@@ -235,6 +246,7 @@ app.get('/api/leaves/stats', async (req, res) => {
         rejected: Number(totals?.rejected || 0),
         totalTrains: Number(trainStats?.total_trains || 0),
         totalPersons: Number(personStats?.total_persons || 0),
+        myTrains,
       },
       byType,
       myBalance,
@@ -590,6 +602,10 @@ app.get('/api/trains', async (req, res) => {
     if (req.query.train_type_id) {
       where.push('t.train_type_id = ?');
       params.push(Number(req.query.train_type_id));
+    }
+    if (req.query.mine === '1' && req.session.user) {
+      where.push('t.person_id = ?');
+      params.push(Number(req.session.user.person_id));
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const [[cntRow]] = await pool.query(`SELECT COUNT(*) AS cnt FROM hrd_train_data t ${whereSql}`, params);

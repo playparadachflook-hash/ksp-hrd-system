@@ -120,7 +120,7 @@
       <!-- BENTO GRID DASHBOARD -->
       <section class="bento-grid no-print" id="bentoDashboard">
         <!-- Balance Ring Card -->
-        <div class="bento-card bento-ring-card" id="myBalanceCard">
+        <div class="bento-card bento-ring-card" id="myBalanceCard" onclick="openMyLeavesFilter('5', '')" style="cursor:pointer;" title="คลิกเพื่อดูข้อมูลการลาพักผ่อนของคุณ">
           <div class="bento-label">สิทธิ์วันลาพักผ่อนของคุณ</div>
           <div class="ring-wrap">
             <svg class="progress-ring" viewBox="0 0 120 120">
@@ -137,29 +137,29 @@
 
         <!-- KPI Cluster -->
         <div class="bento-card bento-kpi-cluster">
-          <div class="kpi-tile kpi-indigo">
-            <span class="kpi-cap">ใบลาทั้งหมด (ปีงบฯ)</span>
+          <div class="kpi-tile kpi-indigo" onclick="openMyLeavesFilter('', '')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาทั้งหมดของคุณ">
+            <span class="kpi-cap">ใบลาของคุณ (ปีงบฯ)</span>
             <strong id="kpiTotal">-</strong>
           </div>
-          <div class="kpi-tile kpi-amber">
+          <div class="kpi-tile kpi-amber" onclick="openMyLeavesFilter('', '1')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาที่รออนุมัติ">
             <span class="kpi-cap">รออนุมัติ</span>
             <strong id="kpiPending">-</strong>
           </div>
-          <div class="kpi-tile kpi-emerald">
+          <div class="kpi-tile kpi-emerald" onclick="openMyLeavesFilter('', '2')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาที่อนุญาตแล้ว">
             <span class="kpi-cap">อนุญาตแล้ว</span>
             <strong id="kpiApproved">-</strong>
           </div>
-          <div class="kpi-tile kpi-cyan">
-            <span class="kpi-cap">ประวัติอบรม / บุคลากร</span>
-            <strong id="kpiTrainPerson">-</strong>
+          <div class="kpi-tile kpi-cyan" onclick="openMyTrains()" style="cursor:pointer;" title="คลิกเพื่อดูประวัติการอบรมของคุณ">
+            <span class="kpi-cap">ประวัติอบรมของคุณ</span>
+            <strong id="kpiTrainPerson" style="font-size:19px;">-</strong>
           </div>
         </div>
 
         <!-- Leave Type Breakdown -->
         <div class="bento-card bento-chart-card">
           <div class="bento-head">
-            <span class="bento-label">สัดส่วนประเภทการลา (Top 5)</span>
-            <span class="chip-live">Live db_hrd</span>
+            <span class="bento-label">สัดส่วนประเภทการลาของคุณ (Top 5)</span>
+            <span class="chip-live">ของฉัน</span>
           </div>
           <div id="typeBreakdownBars" class="bars-stack"></div>
         </div>
