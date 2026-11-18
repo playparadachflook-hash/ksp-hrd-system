@@ -542,7 +542,8 @@ async function getLeaveWithStats(id) {
   const [hist] = await pool.query(
     `SELECT hrd_leave_id, hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type
      FROM hrd_leave_data
-     WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND hrd_leave_id < ? AND allow_id IN (1, 2)`,
+     WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND hrd_leave_id < ? AND allow_id IN (1, 2)
+     ORDER BY hrd_leave_id DESC`,
     [leave.person_id, fyStart, fyEnd, leave.hrd_leave_id]
   );
   let prevVacation = 0;
@@ -557,7 +558,14 @@ async function getLeaveWithStats(id) {
     else if (Number(h.hrd_leave_type_id) === 2) prevMaternity += d;
   });
 
-  return { leave, stats: { prevVacation, prevSick, prevBusiness, prevMaternity } };
+  const lastLeave = hist.length
+    ? {
+        ...hist[0],
+        days: hist[0].leave_day != null ? Number(hist[0].leave_day) : calcLeaveDays(hist[0].leave_startdate, hist[0].leave_enddate, hist[0].leave_day_type),
+      }
+    : null;
+
+  return { leave, stats: { prevVacation, prevSick, prevBusiness, prevMaternity, lastLeave } };
 }
 
 app.get('/api/leaves/:id', async (req, res) => {
