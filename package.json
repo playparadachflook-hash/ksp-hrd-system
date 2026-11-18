@@ -1,0 +1,28 @@
+{
+  "name": "ksp-hrd-system",
+  "version": "1.0.0",
+  "description": "ระบบบริหารงานบุคลากร การลา และฝึกอบรมออนไลน์ โรงพยาบาลโคกศรีสุพรรณ (Node.js + Express + MySQL db_hrd)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "hrd",
+    "leave-system",
+    "training",
+    "hospital",
+    "nodejs",
+    "express",
+    "mysql"
+  ],
+  "author": "Khok Si Suphan Hospital",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "mysql2": "^3.12.0",
+    "pdfkit": "^0.15.1"
+  }
+}

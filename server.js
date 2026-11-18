@@ -1,0 +1,899 @@
+require('dotenv').config();
+const path = require('path');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const express = require('express');
+const session = require('express-session');
+const { pool, md5 } = require('./src/db');
+const { generateLeavePdf, generateTrainPdf, generateReportPdf } = require('./src/pdf');
+
+const execAsync = promisify(exec);
+const app = express();
+const PORT = Number(process.env.PORT || 3535);
+const PKG = require('./package.json');
+
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'ksp-hrd-system-secret-2026',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 1000 * 60 * 60 * 12 },
+  })
+);
+
+app.use(express.static(path.join(__dirname, 'public')));
+
+function requireAuth(req, res, next) {
+  if (!req.session.user) {
+    return res.status(401).json({ error: 'กรุณาเข้าสู่ระบบก่อนดำเนินการ' });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session.user || !req.session.user.isAdmin) {
+    return res.status(403).json({ error: 'เฉพาะผู้ดูแลระบบ / เจ้าหน้าที่ธุรการเท่านั้น' });
+  }
+  next();
+}
+
+function calcLeaveDays(startDate, endDate, dayTypeId) {
+  if (Number(dayTypeId) === 2 || Number(dayTypeId) === 3) return 0.5;
+  if (!startDate || !endDate) return 1;
+  const s = new Date(String(startDate).slice(0, 10));
+  const e = new Date(String(endDate).slice(0, 10));
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+  const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+  return diff > 0 ? diff : 1;
+}
+
+function getFiscalYear(isoDate) {
+  const d = isoDate ? new Date(String(isoDate).slice(0, 10)) : new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  const ce = m >= 10 ? y + 1 : y;
+  return ce + 543;
+}
+
+// ==================== AUTH ====================
+app.get('/api/auth/me', (req, res) => {
+  res.json({ user: req.session.user || null });
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
+    }
+    const u = String(username).trim();
+    const pHash = md5(String(password).trim());
+    const [rows] = await pool.query(
+      `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
+              p.department_id, p.department_sub_id, p.position_id, p.leave_accumulate,
+              pn.prename_name, pos.position_name, d.department_name, ds.department_sub_name,
+              ug.user_groups_th
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
+       WHERE p.username = ? AND (p.password = ? OR p.password = ?)
+       LIMIT 1`,
+      [u, pHash, String(password).trim()]
+    );
+    if (!rows.length) {
+      return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+    }
+    const user = rows[0];
+    const fullName = `${user.prename_name || ''}${String(user.fname || '').trim()} ${String(user.lname || '').trim()}`.trim();
+    req.session.user = {
+      person_id: user.person_id,
+      username: user.username,
+      fullName,
+      phone_number: user.phone_number || '',
+      department_id: user.department_id,
+      department_name: user.department_name || '',
+      department_sub_id: user.department_sub_id,
+      department_sub_name: user.department_sub_name || '',
+      position_id: user.position_id,
+      position_name: user.position_name || '',
+      user_groups_id: Number(user.user_groups_id || 3),
+      userGroupLabel: user.user_groups_th || 'ผู้ใช้งานทั่วไป',
+      leave_accumulate: Number(user.leave_accumulate || 0),
+      isAdmin: [1, 2].includes(Number(user.user_groups_id)),
+    };
+    res.json({ user: req.session.user });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+// ==================== MASTER LOOKUPS ====================
+app.get('/api/master', async (req, res) => {
+  try {
+    const [
+      [leaveTypes],
+      [dayTypes],
+      [allows],
+      [departments],
+      [departmentSubs],
+      [positions],
+      [trainTypes],
+      [trainAbouts],
+      [trainAreas],
+      [trainBudgets],
+      [persons],
+    ] = await Promise.all([
+      pool.query('SELECT hrd_leave_type_id, hrd_leave_type_name, graph_color FROM hrd_leave_type ORDER BY hrd_leave_type_id'),
+      pool.query('SELECT leave_day_type_id, leave_day_type_name, leave_day FROM hrd_leave_day_type ORDER BY leave_day_type_id'),
+      pool.query('SELECT allow_id, allow_name FROM hrd_allow ORDER BY allow_id'),
+      pool.query('SELECT department_id, department_name, head_department FROM hrd_department WHERE department_status = "Y" ORDER BY department_id'),
+      pool.query('SELECT department_sub_id, department_id, department_sub_name, department_head FROM hrd_department_sub WHERE department_sub_status = "Y" ORDER BY department_sub_id'),
+      pool.query('SELECT position_id, position_name FROM hrd_position ORDER BY position_name'),
+      pool.query('SELECT train_type_id, train_type_name FROM hrd_train_type ORDER BY train_type_id'),
+      pool.query('SELECT train_about_id, train_about_name FROM hrd_train_about ORDER BY train_about_id'),
+      pool.query('SELECT train_area_id, train_area_name FROM hrd_train_area ORDER BY train_area_id'),
+      pool.query('SELECT train_budget_id, train_budget_name FROM hrd_train_budget ORDER BY train_budget_id'),
+      pool.query(
+        `SELECT p.person_id, CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+                p.department_id, p.department_sub_id, p.position_id
+         FROM hrd_person p
+         LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+         WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''
+         ORDER BY p.fname, p.lname`
+      ),
+    ]);
+    res.json({
+      leaveTypes,
+      dayTypes,
+      allows,
+      departments,
+      departmentSubs,
+      positions,
+      trainTypes,
+      trainAbouts,
+      trainAreas,
+      trainBudgets,
+      persons,
+    });
+  } catch (err) {
+    console.error('Master error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== STATS & DASHBOARD ====================
+app.get('/api/leaves/stats', async (req, res) => {
+  try {
+    const fy = Number(req.query.year_name || getFiscalYear());
+    const [[totals]] = await pool.query(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN allow_id = 1 THEN 1 ELSE 0 END) AS pending,
+              SUM(CASE WHEN allow_id = 2 THEN 1 ELSE 0 END) AS approved,
+              SUM(CASE WHEN allow_id = 3 THEN 1 ELSE 0 END) AS rejected
+       FROM hrd_leave_data
+       WHERE year_name = ?`,
+      [fy]
+    );
+    const [byType] = await pool.query(
+      `SELECT lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color, COUNT(l.hrd_leave_id) AS cnt
+       FROM hrd_leave_type lt
+       LEFT JOIN hrd_leave_data l ON l.hrd_leave_type_id = lt.hrd_leave_type_id AND l.year_name = ?
+       GROUP BY lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color
+       ORDER BY cnt DESC`,
+      [fy]
+    );
+    const [[trainStats]] = await pool.query('SELECT COUNT(*) AS total_trains FROM hrd_train_data');
+    const [[personStats]] = await pool.query('SELECT COUNT(*) AS total_persons FROM hrd_person');
+
+    let myBalance = null;
+    if (req.session.user) {
+      const [myRows] = await pool.query(
+        `SELECT hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type, allow_id
+         FROM hrd_leave_data
+         WHERE person_id = ? AND year_name = ? AND allow_id IN (1, 2)`,
+        [req.session.user.person_id, fy]
+      );
+      let usedVacation = 0;
+      let usedSick = 0;
+      let usedBusiness = 0;
+      myRows.forEach((r) => {
+        const d = Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
+        if (Number(r.hrd_leave_type_id) === 5) usedVacation += d;
+        else if (Number(r.hrd_leave_type_id) === 1) usedSick += d;
+        else if (Number(r.hrd_leave_type_id) === 4) usedBusiness += d;
+      });
+      const accumulate = Number(req.session.user.leave_accumulate || 0);
+      const totalRight = accumulate + 10;
+      myBalance = {
+        fiscalYear: fy,
+        accumulate,
+        annualRight: 10,
+        totalRight,
+        usedVacation,
+        remainingVacation: Math.max(0, totalRight - usedVacation),
+        usedSick,
+        usedBusiness,
+      };
+    }
+
+    res.json({
+      fiscalYear: fy,
+      totals: {
+        total: Number(totals?.total || 0),
+        pending: Number(totals?.pending || 0),
+        approved: Number(totals?.approved || 0),
+        rejected: Number(totals?.rejected || 0),
+        totalTrains: Number(trainStats?.total_trains || 0),
+        totalPersons: Number(personStats?.total_persons || 0),
+      },
+      byType,
+      myBalance,
+    });
+  } catch (err) {
+    console.error('Stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== LEAVES CRUD ====================
+function buildLeaveWhere(query, user) {
+  const { q, year_name, month, type_id, allow_id, department_id, mine, exact_date } = query;
+  const where = [];
+  const params = [];
+
+  if (exact_date) {
+    where.push('? BETWEEN l.leave_startdate AND l.leave_enddate');
+    params.push(exact_date);
+  } else {
+    if (year_name) {
+      where.push('l.year_name = ?');
+      params.push(Number(year_name));
+    }
+    if (month && Number(month) > 0) {
+      where.push('MONTH(l.leave_startdate) = ?');
+      params.push(Number(month));
+    }
+  }
+  if (type_id) {
+    where.push('l.hrd_leave_type_id = ?');
+    params.push(Number(type_id));
+  }
+  if (allow_id) {
+    where.push('l.allow_id = ?');
+    params.push(Number(allow_id));
+  }
+  if (department_id) {
+    where.push('l.department_id = ?');
+    params.push(Number(department_id));
+  }
+  if (mine === '1' && user) {
+    where.push('l.person_id = ?');
+    params.push(user.person_id);
+  }
+  if (q && String(q).trim()) {
+    const like = `%${String(q).trim()}%`;
+    where.push('(p.fname LIKE ? OR p.lname LIKE ? OR l.leave_because LIKE ? OR CAST(l.hrd_leave_id AS CHAR) LIKE ?)');
+    params.push(like, like, like, like);
+  }
+
+  return {
+    whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '',
+    params,
+  };
+}
+
+app.get('/api/leaves/calendar', async (req, res) => {
+  try {
+    const year = Number(req.query.year || new Date().getFullYear());
+    const month = Number(req.query.month || new Date().getMonth() + 1);
+    const start = `${year}-${String(month).padStart(2, '0')}-01`;
+    const end = `${year}-${String(month).padStart(2, '0')}-31`;
+    const params = [end, start];
+    let extra = '';
+    if (req.query.type_id) {
+      extra += ' AND l.hrd_leave_type_id = ?';
+      params.push(Number(req.query.type_id));
+    }
+    if (req.query.mine === '1' && req.session.user) {
+      extra += ' AND l.person_id = ?';
+      params.push(req.session.user.person_id);
+    }
+    const [rows] = await pool.query(
+      `SELECT l.hrd_leave_id, l.person_id, l.hrd_leave_type_id, l.leave_startdate, l.leave_enddate,
+              l.allow_id, l.leave_day, l.leave_day_type,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              lt.hrd_leave_type_name, lt.graph_color
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_person p ON p.person_id = l.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
+       WHERE l.leave_startdate <= ? AND l.leave_enddate >= ? ${extra}
+       ORDER BY l.leave_startdate ASC, l.hrd_leave_id DESC
+       LIMIT 500`,
+      params
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/leaves', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(10, Number(req.query.limit || 25)));
+    const offset = (page - 1) * limit;
+    const { whereSql, params } = buildLeaveWhere(req.query, req.session.user);
+
+    const [[cntRow]] = await pool.query(
+      `SELECT COUNT(*) AS cnt
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_person p ON p.person_id = l.person_id
+       ${whereSql}`,
+      params
+    );
+    const total = Number(cntRow?.cnt || 0);
+
+    const [items] = await pool.query(
+      `SELECT l.hrd_leave_id, l.person_id, l.hrd_leave_type_id, l.leave_startdate, l.leave_enddate,
+              l.leave_day, l.leave_day_type, l.leave_because, l.leave_because_cancel,
+              l.allow_id, l.leave_save, l.leave_check_doc, l.year_name,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              pos.position_name, d.department_name, ds.department_sub_name,
+              lt.hrd_leave_type_name, lt.graph_color, a.allow_name, ldt.leave_day_type_name
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_person p ON p.person_id = l.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = COALESCE(NULLIF(l.position_id,0), p.position_id)
+       LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id,0), p.department_id)
+       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = COALESCE(NULLIF(l.department_sub_id,0), p.department_sub_id)
+       LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
+       LEFT JOIN hrd_allow a ON a.allow_id = l.allow_id
+       LEFT JOIN hrd_leave_day_type ldt ON ldt.leave_day_type_id = l.leave_day_type
+       ${whereSql}
+       ORDER BY l.hrd_leave_id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    const enriched = items.map((r) => ({
+      ...r,
+      calc_days: r.leave_day != null ? Number(r.leave_day) : calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type),
+    }));
+
+    res.json({
+      items: enriched,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
+  } catch (err) {
+    console.error('GET /api/leaves error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+async function getLeaveWithStats(id) {
+  const [rows] = await pool.query(
+    `SELECT l.*,
+            pn.prename_name, TRIM(p.fname) AS fname, TRIM(p.lname) AS lname,
+            p.phone_number, p.leave_accumulate,
+            pos.position_name, d.department_name, ds.department_sub_name,
+            lt.hrd_leave_type_name, a.allow_name,
+            CONCAT(COALESCE(pnh.prename_name,''), TRIM(ph.fname), ' ', TRIM(ph.lname)) AS head_name,
+            CONCAT(COALESCE(pna.prename_name,''), TRIM(pa.fname), ' ', TRIM(pa.lname)) AS assigned_name,
+            CONCAT(COALESCE(pnc.prename_name,''), TRIM(pc.fname), ' ', TRIM(pc.lname)) AS checker_name
+     FROM hrd_leave_data l
+     LEFT JOIN hrd_person p ON p.person_id = l.person_id
+     LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+     LEFT JOIN hrd_position pos ON pos.position_id = COALESCE(NULLIF(l.position_id,0), p.position_id)
+     LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id,0), p.department_id)
+     LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = COALESCE(NULLIF(l.department_sub_id,0), p.department_sub_id)
+     LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
+     LEFT JOIN hrd_allow a ON a.allow_id = l.allow_id
+     LEFT JOIN hrd_person ph ON ph.person_id = d.head_department
+     LEFT JOIN hrd_prename pnh ON pnh.prename_id = ph.prename_id
+     LEFT JOIN hrd_person pa ON pa.person_id = l.leave_assigned_person_id
+     LEFT JOIN hrd_prename pna ON pna.prename_id = pa.prename_id
+     LEFT JOIN hrd_person pc ON pc.person_id = l.leave_check
+     LEFT JOIN hrd_prename pnc ON pnc.prename_id = pc.prename_id
+     WHERE l.hrd_leave_id = ?
+     LIMIT 1`,
+    [Number(id)]
+  );
+  if (!rows.length) return null;
+  const leave = rows[0];
+  leave.calc_days = leave.leave_day != null ? Number(leave.leave_day) : calcLeaveDays(leave.leave_startdate, leave.leave_enddate, leave.leave_day_type);
+
+  const [hist] = await pool.query(
+    `SELECT hrd_leave_id, hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type
+     FROM hrd_leave_data
+     WHERE person_id = ? AND year_name = ? AND hrd_leave_id < ? AND allow_id IN (1, 2)`,
+    [leave.person_id, leave.year_name || getFiscalYear(leave.leave_startdate), leave.hrd_leave_id]
+  );
+  let prevVacation = 0;
+  let prevSick = 0;
+  let prevBusiness = 0;
+  let prevMaternity = 0;
+  hist.forEach((h) => {
+    const d = h.leave_day != null ? Number(h.leave_day) : calcLeaveDays(h.leave_startdate, h.leave_enddate, h.leave_day_type);
+    if (Number(h.hrd_leave_type_id) === 5) prevVacation += d;
+    else if (Number(h.hrd_leave_type_id) === 1) prevSick += d;
+    else if (Number(h.hrd_leave_type_id) === 4) prevBusiness += d;
+    else if (Number(h.hrd_leave_type_id) === 2) prevMaternity += d;
+  });
+
+  return { leave, stats: { prevVacation, prevSick, prevBusiness, prevMaternity } };
+}
+
+app.get('/api/leaves/:id', async (req, res) => {
+  try {
+    const data = await getLeaveWithStats(req.params.id);
+    if (!data) return res.status(404).json({ error: 'ไม่พบข้อมูลใบลา' });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/leaves/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const data = await getLeaveWithStats(req.params.id);
+    if (!data) return res.status(404).json({ error: 'ไม่พบข้อมูลใบลา' });
+    const isOwner = Number(data.leave.person_id) === Number(req.session.user.person_id);
+    if (!req.session.user.isAdmin && !isOwner) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ดาวน์โหลดเอกสารของผู้อื่น' });
+    }
+    generateLeavePdf(data.leave, data.stats, res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/leaves', requireAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    const personId = req.session.user.isAdmin && b.person_id ? Number(b.person_id) : req.session.user.person_id;
+    const [pRows] = await pool.query(
+      'SELECT person_id, position_id, department_id, department_sub_id, phone_number FROM hrd_person WHERE person_id = ? LIMIT 1',
+      [personId]
+    );
+    const p = pRows[0] || {};
+    const days = b.leave_day ? Number(b.leave_day) : calcLeaveDays(b.leave_startdate, b.leave_enddate, b.leave_day_type);
+    const fy = b.year_name ? Number(b.year_name) : getFiscalYear(b.leave_startdate);
+
+    const [result] = await pool.query(
+      `INSERT INTO hrd_leave_data (
+        person_id, position_id, department_id, department_sub_id,
+        hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type,
+        leave_because, leave_because_cancel, allow_id, leave_contact, leave_contact_tel,
+        leave_assigned_person_id, user_login, leave_save, leave_check_doc, year_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, CURDATE(), 'N', ?)`,
+      [
+        personId,
+        p.position_id || req.session.user.position_id || 0,
+        p.department_id || req.session.user.department_id || 0,
+        p.department_sub_id || req.session.user.department_sub_id || 0,
+        Number(b.hrd_leave_type_id),
+        b.leave_startdate,
+        b.leave_enddate,
+        days,
+        Number(b.leave_day_type || 1),
+        b.leave_because || '',
+        b.leave_because_cancel || '',
+        b.leave_contact || '',
+        b.leave_contact_tel || p.phone_number || '',
+        b.leave_assigned_person_id ? Number(b.leave_assigned_person_id) : null,
+        req.session.user.username,
+        fy,
+      ]
+    );
+    res.json({ ok: true, id: result.insertId });
+  } catch (err) {
+    console.error('POST /api/leaves error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/leaves/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [existingRows] = await pool.query('SELECT * FROM hrd_leave_data WHERE hrd_leave_id = ? LIMIT 1', [id]);
+    if (!existingRows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลใบลา' });
+    const existing = existingRows[0];
+    const isOwner = Number(existing.person_id) === Number(req.session.user.person_id);
+    if (!req.session.user.isAdmin && !isOwner) {
+      return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
+    }
+    const b = req.body;
+    const days = b.leave_day ? Number(b.leave_day) : calcLeaveDays(b.leave_startdate, b.leave_enddate, b.leave_day_type);
+    await pool.query(
+      `UPDATE hrd_leave_data
+       SET hrd_leave_type_id = ?, leave_startdate = ?, leave_enddate = ?, leave_day = ?, leave_day_type = ?,
+           leave_because = ?, leave_because_cancel = ?, leave_contact = ?, leave_contact_tel = ?,
+           leave_assigned_person_id = ?, year_name = ?
+       WHERE hrd_leave_id = ?`,
+      [
+        Number(b.hrd_leave_type_id || existing.hrd_leave_type_id),
+        b.leave_startdate || existing.leave_startdate,
+        b.leave_enddate || existing.leave_enddate,
+        days,
+        Number(b.leave_day_type || existing.leave_day_type || 1),
+        b.leave_because ?? existing.leave_because,
+        b.leave_because_cancel ?? existing.leave_because_cancel,
+        b.leave_contact ?? existing.leave_contact,
+        b.leave_contact_tel ?? existing.leave_contact_tel,
+        b.leave_assigned_person_id ? Number(b.leave_assigned_person_id) : null,
+        Number(b.year_name || existing.year_name || getFiscalYear(b.leave_startdate)),
+        id,
+      ]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/leaves/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { allow_id, leave_check_doc } = req.body;
+    await pool.query(
+      `UPDATE hrd_leave_data
+       SET allow_id = ?, leave_check = ?, leave_check_doc = ?, leave_check_date = CURDATE()
+       WHERE hrd_leave_id = ?`,
+      [Number(allow_id || 2), req.session.user.person_id, leave_check_doc === 'Y' ? 'Y' : 'N', id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM hrd_leave_data WHERE hrd_leave_id = ?', [Number(req.params.id)]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== TRAINING DATA ====================
+app.get('/api/trains', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(100, Math.max(10, Number(req.query.limit || 25)));
+    const offset = (page - 1) * limit;
+    const where = [];
+    const params = [];
+    if (req.query.q && String(req.query.q).trim()) {
+      const like = `%${String(req.query.q).trim()}%`;
+      where.push('(t.train_topic LIKE ? OR t.train_org LIKE ? OR t.train_place LIKE ?)');
+      params.push(like, like, like);
+    }
+    if (req.query.year) {
+      where.push('YEAR(t.train_startdate) = ?');
+      params.push(Number(req.query.year));
+    }
+    if (req.query.train_type_id) {
+      where.push('t.train_type_id = ?');
+      params.push(Number(req.query.train_type_id));
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const [[cntRow]] = await pool.query(`SELECT COUNT(*) AS cnt FROM hrd_train_data t ${whereSql}`, params);
+    const total = Number(cntRow?.cnt || 0);
+    const [items] = await pool.query(
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+       FROM hrd_train_data t
+       LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
+       LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
+       LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
+       LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       ${whereSql}
+       ORDER BY t.train_data_id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    res.json({ items, total, page, limit, totalPages: Math.ceil(total / limit) || 1 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/trains/:id', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+       FROM hrd_train_data t
+       LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
+       LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
+       LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
+       LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       WHERE t.train_data_id = ? LIMIT 1`,
+      [Number(req.params.id)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลอบรม' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/trains/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+       FROM hrd_train_data t
+       LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
+       LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
+       LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
+       LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       WHERE t.train_data_id = ? LIMIT 1`,
+      [Number(req.params.id)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลอบรม' });
+    generateTrainPdf(rows[0], res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/trains', requireAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    const days = b.train_sum_day ? Number(b.train_sum_day) : calcLeaveDays(b.train_startdate, b.train_enddate, 1);
+    const [result] = await pool.query(
+      `INSERT INTO hrd_train_data (
+        train_topic, train_org, train_place, train_startdate, train_enddate, train_sum_day,
+        train_type_id, train_about_id, train_area_id, train_budget_id, train_order,
+        train_pay_register, train_pay_apartment, train_pay_allowance, train_pay_travel, train_pay_other,
+        allow_id, person_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [
+        b.train_topic,
+        b.train_org || '',
+        b.train_place || '',
+        b.train_startdate,
+        b.train_enddate,
+        days,
+        b.train_type_id ? Number(b.train_type_id) : null,
+        b.train_about_id ? Number(b.train_about_id) : null,
+        b.train_area_id ? Number(b.train_area_id) : null,
+        b.train_budget_id ? Number(b.train_budget_id) : null,
+        b.train_order || '',
+        Number(b.train_pay_register || 0),
+        Number(b.train_pay_apartment || 0),
+        Number(b.train_pay_allowance || 0),
+        Number(b.train_pay_travel || 0),
+        Number(b.train_pay_other || 0),
+        req.session.user.person_id,
+      ]
+    );
+    res.json({ ok: true, id: result.insertId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/trains/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [Number(req.params.id)]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== REPORTS ====================
+app.get('/api/reports/summary', async (req, res) => {
+  try {
+    const fy = Number(req.query.year_name || getFiscalYear());
+    const [byDepartment] = await pool.query(
+      `SELECT COALESCE(d.department_name, 'ไม่ระบุกลุ่มงาน') AS name,
+              COUNT(*) AS total,
+              SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)) AS total_days
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_department d ON d.department_id = l.department_id
+       WHERE l.year_name = ?
+       GROUP BY l.department_id, d.department_name
+       ORDER BY total DESC`,
+      [fy]
+    );
+    const [byType] = await pool.query(
+      `SELECT COALESCE(lt.hrd_leave_type_name, 'ไม่ระบุ') AS name,
+              COUNT(*) AS total,
+              SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)) AS total_days
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
+       WHERE l.year_name = ?
+       GROUP BY l.hrd_leave_type_id, lt.hrd_leave_type_name
+       ORDER BY total DESC`,
+      [fy]
+    );
+    const [topPersons] = await pool.query(
+      `SELECT CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS name,
+              COALESCE(d.department_name, '-') AS dept,
+              COUNT(*) AS total,
+              SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)) AS total_days
+       FROM hrd_leave_data l
+       LEFT JOIN hrd_person p ON p.person_id = l.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       WHERE l.year_name = ?
+       GROUP BY l.person_id, p.fname, p.lname, pn.prename_name, d.department_name
+       ORDER BY total_days DESC
+       LIMIT 20`,
+      [fy]
+    );
+    res.json({ fiscalYear: fy, byDepartment, byType, topPersons });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
+  try {
+    const fy = Number(req.query.year_name || getFiscalYear());
+    const section = req.query.section || 'department';
+    const [summary] = await Promise.all([
+      (async () => {
+        const [byDepartment] = await pool.query(
+          `SELECT COALESCE(d.department_name, 'ไม่ระบุกลุ่มงาน') AS name, COUNT(*) AS total,
+                  ROUND(SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)), 1) AS total_days
+           FROM hrd_leave_data l
+           LEFT JOIN hrd_department d ON d.department_id = l.department_id
+           WHERE l.year_name = ? GROUP BY l.department_id, d.department_name ORDER BY total DESC`,
+          [fy]
+        );
+        const [byType] = await pool.query(
+          `SELECT COALESCE(lt.hrd_leave_type_name, 'ไม่ระบุ') AS name, COUNT(*) AS total,
+                  ROUND(SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)), 1) AS total_days
+           FROM hrd_leave_data l
+           LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
+           WHERE l.year_name = ? GROUP BY l.hrd_leave_type_id, lt.hrd_leave_type_name ORDER BY total DESC`,
+          [fy]
+        );
+        return { byDepartment, byType };
+      })(),
+    ]);
+
+    if (section === 'type') {
+      const cols = [
+        { label: 'ลำดับ', w: 50, align: 'center' },
+        { label: 'ประเภทการลา', w: 285 },
+        { label: 'จำนวนครั้ง', w: 90, align: 'center' },
+        { label: 'รวมวันลา', w: 90, align: 'center' },
+      ];
+      const rows = summary.byType.map((r, i) => [i + 1, r.name, r.total, r.total_days || 0]);
+      return generateReportPdf('รายงานสรุปการลาตามประเภทการลา', `ปีงบประมาณ พ.ศ. ${fy}`, cols, rows, res, req.query.download === '1');
+    }
+
+    const cols = [
+      { label: 'ลำดับ', w: 50, align: 'center' },
+      { label: 'กลุ่มงาน', w: 285 },
+      { label: 'จำนวนครั้ง', w: 90, align: 'center' },
+      { label: 'รวมวันลา', w: 90, align: 'center' },
+    ];
+    const rows = summary.byDepartment.map((r, i) => [i + 1, r.name, r.total, r.total_days || 0]);
+    return generateReportPdf('รายงานสรุปการลาตามกลุ่มงาน', `ปีงบประมาณ พ.ศ. ${fy}`, cols, rows, res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== PERSONNEL (ADMIN) ====================
+app.get('/api/persons', requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const where = q ? 'WHERE p.fname LIKE ? OR p.lname LIKE ? OR p.username LIKE ?' : '';
+    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+    const [rows] = await pool.query(
+      `SELECT p.person_id, p.username, p.user_groups_id, p.leave_accumulate, p.phone_number,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              pos.position_name, d.department_name, ds.department_sub_name, ug.user_groups_th
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
+       ${where}
+       ORDER BY p.fname, p.lname
+       LIMIT 200`,
+      params
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/persons/:id', requireAdmin, async (req, res) => {
+  try {
+    const { user_groups_id, leave_accumulate } = req.body;
+    await pool.query(
+      'UPDATE hrd_person SET user_groups_id = ?, leave_accumulate = ? WHERE person_id = ?',
+      [Number(user_groups_id || 3), Number(leave_accumulate || 0), Number(req.params.id)]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== AUTO UPDATE SYSTEM ====================
+app.get('/api/system/version', async (req, res) => {
+  let commit = 'unknown';
+  let commitDate = '';
+  let commitMsg = '';
+  try {
+    const { stdout } = await execAsync('git log -1 --format="%h|%ci|%s"', { cwd: __dirname });
+    const parts = stdout.trim().split('|');
+    commit = parts[0] || 'unknown';
+    commitDate = parts[1] || '';
+    commitMsg = parts[2] || '';
+  } catch {}
+  res.json({
+    name: PKG.name,
+    version: PKG.version,
+    commit,
+    commitDate,
+    commitMsg,
+    nodeVersion: process.version,
+    uptimeSec: Math.round(process.uptime()),
+  });
+});
+
+app.get('/api/system/check-update', requireAdmin, async (req, res) => {
+  try {
+    await execAsync('git fetch origin main', { cwd: __dirname, timeout: 15000 });
+    const { stdout: localHash } = await execAsync('git rev-parse --short HEAD', { cwd: __dirname });
+    const { stdout: remoteHash } = await execAsync('git rev-parse --short origin/main', { cwd: __dirname });
+    const { stdout: behindStr } = await execAsync('git rev-list --count HEAD..origin/main', { cwd: __dirname });
+    const { stdout: latestMsg } = await execAsync('git log -1 --format="%s" origin/main', { cwd: __dirname });
+    const behindCount = Number(behindStr.trim() || 0);
+    res.json({
+      hasUpdate: behindCount > 0,
+      behindCount,
+      localCommit: localHash.trim(),
+      remoteCommit: remoteHash.trim(),
+      latestMessage: latestMsg.trim(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: `ตรวจสอบอัปเดตไม่สำเร็จ: ${err.message}` });
+  }
+});
+
+app.post('/api/system/update', requireAdmin, async (req, res) => {
+  try {
+    const { stdout: diffFiles } = await execAsync('git diff --name-only HEAD..origin/main', { cwd: __dirname });
+    const { stdout: pullOut } = await execAsync('git pull origin main', { cwd: __dirname, timeout: 30000 });
+    if (diffFiles.includes('package.json')) {
+      await execAsync('npm install --omit=dev', { cwd: __dirname, timeout: 60000 });
+    }
+    res.json({ ok: true, output: pullOut.trim(), restarting: true });
+    setTimeout(() => process.exit(0), 800);
+  } catch (err) {
+    res.status(500).json({ error: `อัปเดตไม่สำเร็จ: ${err.message}` });
+  }
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`KSP HRD System running at http://0.0.0.0:${PORT}`);
+});

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KSP HRD Portal • ระบบการลาและพัฒนาบุคลากร รพ.โคกศรีสุพรรณ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- OBSIDIAN AURORA SIDEBAR -->
+    <aside class="sidebar no-print">
+      <div class="brand-card">
+        <img src="logo-ksp.jpg" alt="รพ.โคกศรีสุพรรณ" class="brand-logo" />
+        <div>
+          <div class="brand-title">KSP HRD</div>
+          <div class="brand-sub">รพ.โคกศรีสุพรรณ</div>
+        </div>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-pill active" data-tab="leaves" onclick="switchTab('leaves')">
+          <span class="nav-ico">🗓️</span>
+          <span>ปฏิทิน &amp; รายการลา</span>
+        </button>
+        <button class="nav-pill" data-tab="create" onclick="switchTab('create')">
+          <span class="nav-ico">✍️</span>
+          <span>ยื่นใบลาออนไลน์</span>
+        </button>
+        <button class="nav-pill hidden" id="navMine" data-tab="mine" onclick="switchTab('mine')">
+          <span class="nav-ico">🪪</span>
+          <span>ประวัติการลาของฉัน</span>
+        </button>
+        <button class="nav-pill" data-tab="trains" onclick="switchTab('trains')">
+          <span class="nav-ico">🎓</span>
+          <span>อบรม / ประชุมวิชาการ</span>
+        </button>
+        <button class="nav-pill" data-tab="reports" onclick="switchTab('reports')">
+          <span class="nav-ico">📊</span>
+          <span>รายงาน &amp; สถิติ</span>
+        </button>
+        <button class="nav-pill admin-only hidden" data-tab="admin" onclick="switchTab('admin')">
+          <span class="nav-ico">🛡️</span>
+          <span>อนุมัติ &amp; จัดการระบบ</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div id="authSidebarBox" class="auth-sidebar-box"></div>
+        <div class="version-pill" id="sysVersionBadge">v1.0.0 • db_hrd</div>
+      </div>
+    </aside>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="workspace">
+      <!-- TOP BAR -->
+      <header class="topbar no-print">
+        <div>
+          <h1 id="pageTitle">ระบบบริหารงานบุคลากร การลา และฝึกอบรมออนไลน์</h1>
+          <p class="topbar-sub">เชื่อมต่อฐานข้อมูลกลาง <code>db_hrd</code> • แบบฟอร์ม PDF มาตรฐานราชการ</p>
+        </div>
+        <div class="topbar-actions">
+          <select id="globalFiscalYear" class="fy-select" onchange="onFiscalYearChange()">
+            <option value="2570">ปีงบประมาณ 2570</option>
+            <option value="2569">ปีงบประมาณ 2569</option>
+            <option value="2568">ปีงบประมาณ 2568</option>
+            <option value="2567">ปีงบประมาณ 2567</option>
+          </select>
+          <button class="btn-aurora" onclick="switchTab('create')">+ ยื่นใบลาใหม่</button>
+        </div>
+      </header>
+
+      <!-- BENTO GRID DASHBOARD -->
+      <section class="bento-grid no-print" id="bentoDashboard">
+        <!-- Balance Ring Card -->
+        <div class="bento-card bento-ring-card" id="myBalanceCard">
+          <div class="bento-label">สิทธิ์วันลาพักผ่อนของคุณ</div>
+          <div class="ring-wrap">
+            <svg class="progress-ring" viewBox="0 0 120 120">
+              <circle class="ring-bg" cx="60" cy="60" r="50" />
+              <circle class="ring-fg" id="vacRingFg" cx="60" cy="60" r="50" />
+            </svg>
+            <div class="ring-center">
+              <strong id="vacRemainNum">-</strong>
+              <span>วันคงเหลือ</span>
+            </div>
+          </div>
+          <div class="balance-mini" id="vacBalanceDetail">เข้าสู่ระบบเพื่อดูยอดวันลาสะสม</div>
+        </div>
+
+        <!-- KPI Cluster -->
+        <div class="bento-card bento-kpi-cluster">
+          <div class="kpi-tile kpi-indigo">
+            <span class="kpi-cap">ใบลาทั้งหมด (ปีงบฯ)</span>
+            <strong id="kpiTotal">-</strong>
+          </div>
+          <div class="kpi-tile kpi-amber">
+            <span class="kpi-cap">รออนุมัติ</span>
+            <strong id="kpiPending">-</strong>
+          </div>
+          <div class="kpi-tile kpi-emerald">
+            <span class="kpi-cap">อนุญาตแล้ว</span>
+            <strong id="kpiApproved">-</strong>
+          </div>
+          <div class="kpi-tile kpi-cyan">
+            <span class="kpi-cap">ประวัติอบรม / บุคลากร</span>
+            <strong id="kpiTrainPerson">-</strong>
+          </div>
+        </div>
+
+        <!-- Leave Type Breakdown -->
+        <div class="bento-card bento-chart-card">
+          <div class="bento-head">
+            <span class="bento-label">สัดส่วนประเภทการลา (Top 5)</span>
+            <span class="chip-live">Live db_hrd</span>
+          </div>
+          <div id="typeBreakdownBars" class="bars-stack"></div>
+        </div>
+      </section>
+
+      <!-- TAB: LEAVES (CALENDAR / TABLE) -->
+      <section id="tab-leaves" class="tab-panel">
+        <div class="glass-panel">
+          <div class="panel-head">
+            <h2 id="leavesPanelTitle">ปฏิทินการลาบุคลากร</h2>
+            <div class="panel-actions">
+              <div class="seg-toggle">
+                <button class="seg-btn active" id="btnViewCal" onclick="setViewMode('calendar')">📅 ปฏิทิน</button>
+                <button class="seg-btn" id="btnViewTable" onclick="setViewMode('table')">📋 ตารางรายการ</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="filter-bar">
+            <input type="text" id="filterQ" placeholder="ค้นหา: ชื่อ-สกุล, สาเหตุการลา, เลขที่ใบลา..." />
+            <select id="filterType"><option value="">ทุกประเภทการลา</option></select>
+            <select id="filterStatus">
+              <option value="">ทุกสถานะ</option>
+              <option value="1">รออนุมัติ</option>
+              <option value="2">อนุญาต</option>
+              <option value="3">ไม่อนุญาต</option>
+              <option value="9">ยกเลิกวันลา</option>
+            </select>
+            <select id="filterDept"><option value="">ทุกกลุ่มงาน</option></select>
+            <button class="btn-soft" onclick="applyFilters()">ค้นหา</button>
+            <button class="btn-ghost" onclick="resetFilters()">รีเซ็ต</button>
+          </div>
+
+          <!-- Calendar View -->
+          <div id="calendarView">
+            <div class="cal-toolbar">
+              <button class="btn-soft" onclick="changeCalMonth(-1)">◀ เดือนก่อน</button>
+              <h3 id="calMonthTitle">-</h3>
+              <div style="display:flex;gap:8px;">
+                <button class="btn-soft" onclick="goCalToday()">เดือนปัจจุบัน</button>
+                <button class="btn-soft" onclick="changeCalMonth(1)">เดือนถัดไป ▶</button>
+              </div>
+            </div>
+            <div class="cal-weekdays">
+              <div>อา.</div><div>จ.</div><div>อ.</div><div>พ.</div><div>พฤ.</div><div>ศ.</div><div>ส.</div>
+            </div>
+            <div id="calendarGrid" class="cal-grid"></div>
+          </div>
+
+          <!-- Table View -->
+          <div id="tableView" class="hidden">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>เลขที่</th>
+                    <th>ผู้ขอลา</th>
+                    <th>กลุ่มงาน</th>
+                    <th>ประเภทการลา</th>
+                    <th>วันที่ลา</th>
+                    <th>จำนวนวัน</th>
+                    <th>สถานะ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="leavesTbody"></tbody>
+              </table>
+            </div>
+            <div id="leavesPagination" class="pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: CREATE / EDIT LEAVE -->
+      <section id="tab-create" class="tab-panel hidden">
+        <div class="glass-panel" style="max-width:880px;">
+          <div class="panel-head">
+            <h2 id="formLeaveTitle">แบบฟอร์มยื่นใบลาออนไลน์</h2>
+            <button class="btn-ghost" onclick="resetLeaveForm()">ล้างฟอร์ม</button>
+          </div>
+          <div id="createAuthNotice" class="notice-banner hidden">
+            กรุณา <a href="#" onclick="openLoginModal();return false;">เข้าสู่ระบบ</a> ก่อนยื่นใบลาออนไลน์
+          </div>
+          <form id="leaveForm" onsubmit="submitLeave(event)">
+            <input type="hidden" id="fLeaveId" />
+            <div class="form-grid">
+              <div class="form-group admin-only hidden">
+                <label>ยื่นแทนบุคลากร (เฉพาะแอดมิน)</label>
+                <select id="fPersonId"></select>
+              </div>
+              <div class="form-group">
+                <label>ประเภทการลา *</label>
+                <select id="fTypeId" required onchange="onLeaveTypeChange()"></select>
+              </div>
+              <div class="form-group">
+                <label>ลักษณะการลา *</label>
+                <select id="fDayType" required onchange="recalcDays()"></select>
+              </div>
+              <div class="form-group">
+                <label>ตั้งแต่วันที่ *</label>
+                <input type="date" id="fStartDate" required onchange="recalcDays()" />
+              </div>
+              <div class="form-group">
+                <label>ถึงวันที่ *</label>
+                <input type="date" id="fEndDate" required onchange="recalcDays()" />
+              </div>
+              <div class="form-group">
+                <label>จำนวนวันลา (วันทำการ/วัน)</label>
+                <input type="number" step="0.5" min="0.5" id="fLeaveDay" required />
+              </div>
+              <div class="form-group">
+                <label>ปีงบประมาณ (พ.ศ.)</label>
+                <input type="number" id="fYearName" required />
+              </div>
+              <div class="form-group full" id="fgBecause">
+                <label>เนื่องจาก / สาเหตุการลา</label>
+                <textarea id="fBecause" rows="2" placeholder="ระบุเหตุผลการลา..."></textarea>
+              </div>
+              <div class="form-group full hidden" id="fgBecauseCancel">
+                <label>เหตุผลขอยกเลิกวันลา</label>
+                <textarea id="fBecauseCancel" rows="2" placeholder="ระบุเหตุผลในการขอยกเลิกวันลา..."></textarea>
+              </div>
+              <div class="form-group">
+                <label>ผู้รับมอบหมายงานระหว่างลา</label>
+                <select id="fAssignedId"><option value="">-- ไม่ระบุ --</option></select>
+              </div>
+              <div class="form-group">
+                <label>หมายเลขโทรศัพท์ติดต่อ</label>
+                <input type="text" id="fContactTel" placeholder="08x-xxx-xxxx" />
+              </div>
+              <div class="form-group full">
+                <label>ที่อยู่ / สถานที่ติดต่อได้ระหว่างลา</label>
+                <input type="text" id="fContactAddr" placeholder="ระบุที่อยู่หรือสถานที่ติดต่อ..." />
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn-aurora">บันทึกและยื่นใบลา</button>
+              <button type="button" class="btn-ghost" onclick="switchTab('leaves')">ยกเลิก</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- TAB: TRAINING -->
+      <section id="tab-trains" class="tab-panel hidden">
+        <div class="glass-panel">
+          <div class="panel-head">
+            <h2>ทะเบียนข้อมูลฝึกอบรม / ประชุมวิชาการ / ไปราชการ</h2>
+            <button class="btn-aurora" onclick="openTrainModal()">+ บันทึกการอบรมใหม่</button>
+          </div>
+          <div class="filter-bar">
+            <input type="text" id="trainQ" placeholder="ค้นหา: หัวข้ออบรม, หน่วยงานจัด, สถานที่..." />
+            <select id="trainTypeFilter"><option value="">ทุกประเภทการอบรม</option></select>
+            <button class="btn-soft" onclick="loadTrains(1)">ค้นหา</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>รหัส</th>
+                  <th>หัวข้อ / หลักสูตร</th>
+                  <th>หน่วยงานจัด / สถานที่</th>
+                  <th>วันที่</th>
+                  <th>วัน</th>
+                  <th>ประเภท</th>
+                  <th>จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="trainsTbody"></tbody>
+            </table>
+          </div>
+          <div id="trainsPagination" class="pagination"></div>
+        </div>
+      </section>
+
+      <!-- TAB: REPORTS -->
+      <section id="tab-reports" class="tab-panel hidden">
+        <div class="glass-panel">
+          <div class="panel-head">
+            <h2>รายงานสรุปสถิติการลาบุคลากร</h2>
+            <div class="panel-actions admin-only hidden">
+              <button class="btn-soft" onclick="openPdfModal('รายงานสรุปตามกลุ่มงาน', `/api/reports/pdf?section=department&year_name=${state.fiscalYear}`)">🖨️ PDF กลุ่มงาน</button>
+              <button class="btn-soft" onclick="openPdfModal('รายงานสรุปตามประเภทการลา', `/api/reports/pdf?section=type&year_name=${state.fiscalYear}`)">🖨️ PDF ประเภทลา</button>
+            </div>
+          </div>
+          <div id="reportsGrid" class="reports-grid"></div>
+        </div>
+      </section>
+
+      <!-- TAB: ADMIN & AUTO UPDATE -->
+      <section id="tab-admin" class="tab-panel hidden">
+        <div class="admin-subtabs">
+          <button class="seg-btn active" onclick="switchAdminPane('approve', this)">✅ อนุมัติใบลา</button>
+          <button class="seg-btn" onclick="switchAdminPane('persons', this)">👥 จัดการบุคลากร &amp; วันลาสะสม</button>
+          <button class="seg-btn" onclick="switchAdminPane('update', this)">🔄 ระบบ Auto Update</button>
+        </div>
+
+        <div id="adminPane-approve" class="glass-panel">
+          <div class="panel-head">
+            <h2>จัดการอนุมัติคำขอลา</h2>
+            <select id="adminFilterAllow" onchange="loadAdminLeaves(1)">
+              <option value="1">เฉพาะรออนุมัติ</option>
+              <option value="">ทั้งหมด</option>
+              <option value="2">อนุญาตแล้ว</option>
+              <option value="3">ไม่อนุญาต</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>เลขที่</th>
+                  <th>ผู้ขอลา</th>
+                  <th>ประเภท</th>
+                  <th>วันที่ลา</th>
+                  <th>วัน</th>
+                  <th>สถานะ</th>
+                  <th>ดำเนินการ</th>
+                </tr>
+              </thead>
+              <tbody id="adminLeavesTbody"></tbody>
+            </table>
+          </div>
+          <div id="adminLeavesPag" class="pagination"></div>
+        </div>
+
+        <div id="adminPane-persons" class="glass-panel hidden">
+          <div class="panel-head">
+            <h2>ข้อมูลบุคลากรและวันลาพักผ่อนสะสม (db_hrd)</h2>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="personSearchQ" placeholder="ค้นหาชื่อ / Username..." />
+              <button class="btn-soft" onclick="loadPersons()">ค้นหา</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>ชื่อ-นามสกุล</th>
+                  <th>Username</th>
+                  <th>ตำแหน่ง</th>
+                  <th>กลุ่มงาน</th>
+                  <th>วันลาสะสม</th>
+                  <th>สิทธิ์</th>
+                  <th>บันทึก</th>
+                </tr>
+              </thead>
+              <tbody id="personsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="adminPane-update" class="glass-panel hidden">
+          <div class="panel-head">
+            <h2>ระบบอัปเดตอัตโนมัติ (GitHub Auto Update)</h2>
+            <button class="btn-soft" onclick="checkSystemUpdate()">🔍 ตรวจสอบเวอร์ชันใหม่</button>
+          </div>
+          <div id="updateStatusBox" class="update-box">
+            <p>กด <strong>ตรวจสอบเวอร์ชันใหม่</strong> เพื่อเทียบโค้ดบนเซิร์ฟเวอร์กับ GitHub Repository (<code>ksp-hrd-system</code>)</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="loginModal" class="modal hidden no-print">
+    <div class="login-aurora-card">
+      <button type="button" class="close-btn login-close-btn" onclick="closeModal('loginModal')">✕</button>
+      <div class="login-brand">
+        <img src="logo-ksp.jpg" alt="รพ.โคกศรีสุพรรณ" />
+        <div>
+          <strong>KSP HRD Portal</strong>
+          <span>ระบบบริหารงานบุคลากร การลา และฝึกอบรม</span>
+        </div>
+      </div>
+      <h2>เข้าสู่ระบบ</h2>
+      <p class="login-hint">ใช้ชื่อผู้ใช้และรหัสผ่านเดียวกับระบบ HRD เดิม</p>
+      <form onsubmit="submitLogin(event)">
+        <div class="login-field">
+          <label for="loginUser">ชื่อผู้ใช้ (Username)</label>
+          <input type="text" id="loginUser" placeholder="กรุณากรอกชื่อผู้ใช้" required autocomplete="username" />
+        </div>
+        <div class="login-field">
+          <label for="loginPass">รหัสผ่าน (Password)</label>
+          <div class="pass-wrap">
+            <input type="password" id="loginPass" placeholder="••••••••" required autocomplete="current-password" />
+            <button type="button" class="eye-btn" onclick="toggleLoginPass()">👁️</button>
+          </div>
+        </div>
+        <label class="remember-row">
+          <input type="checkbox" id="loginRemember" />
+          <span>จดจำชื่อผู้ใช้</span>
+        </label>
+        <div id="loginError" class="error-text hidden"></div>
+        <button type="submit" class="btn-aurora full-w">เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- A4 PDF MODAL -->
+  <div id="pdfModal" class="modal hidden no-print">
+    <div class="modal-pdf-box">
+      <div class="modal-head">
+        <h3 id="pdfModalTitle">แบบฟอร์มเอกสาร A4</h3>
+        <div class="pdf-toolbar">
+          <a id="pdfDownloadBtn" class="btn-aurora btn-sm" href="#" download>⬇️ ดาวน์โหลด PDF</a>
+          <button class="btn-soft btn-sm" onclick="printPdfFrame()">🖨️ พิมพ์</button>
+          <a id="pdfNewTabBtn" class="btn-soft btn-sm" href="#" target="_blank">↗️ เปิดแท็บใหม่</a>
+          <button class="close-btn" onclick="closePdfModal()">✕</button>
+        </div>
+      </div>
+      <div class="pdf-wrap">
+        <iframe id="pdfFrame" title="PDF Preview"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- REQUEST DETAIL MODAL -->
+  <div id="leaveDetailModal" class="modal hidden no-print">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="ldTitle">รายละเอียดใบลา</h3>
+        <button class="close-btn" onclick="closeModal('leaveDetailModal')">✕</button>
+      </div>
+      <div id="ldBody" class="detail-body"></div>
+      <div class="form-actions" id="ldActions"></div>
+    </div>
+  </div>
+
+  <!-- NEW TRAINING MODAL -->
+  <div id="trainModal" class="modal hidden no-print">
+    <div class="modal-card" style="max-width:740px;">
+      <div class="modal-head">
+        <h3>บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ</h3>
+        <button class="close-btn" onclick="closeModal('trainModal')">✕</button>
+      </div>
+      <form onsubmit="submitTrain(event)" style="padding:18px 22px;">
+        <div class="form-grid">
+          <div class="form-group full">
+            <label>หัวข้อ / หลักสูตร *</label>
+            <input type="text" id="tTopic" required />
+          </div>
+          <div class="form-group">
+            <label>หน่วยงานที่จัด</label>
+            <input type="text" id="tOrg" />
+          </div>
+          <div class="form-group">
+            <label>สถานที่</label>
+            <input type="text" id="tPlace" />
+          </div>
+          <div class="form-group">
+            <label>วันที่เริ่มต้น *</label>
+            <input type="date" id="tStart" required />
+          </div>
+          <div class="form-group">
+            <label>วันที่สิ้นสุด *</label>
+            <input type="date" id="tEnd" required />
+          </div>
+          <div class="form-group">
+            <label>ประเภทการอบรม</label>
+            <select id="tType"></select>
+          </div>
+          <div class="form-group">
+            <label>พื้นที่</label>
+            <select id="tArea"></select>
+          </div>
+          <div class="form-group">
+            <label>แหล่งงบประมาณ</label>
+            <select id="tBudget"></select>
+          </div>
+          <div class="form-group">
+            <label>ค่าลงทะเบียน (บาท)</label>
+            <input type="number" step="0.01" id="tPayReg" value="0" />
+          </div>
+          <div class="form-group">
+            <label>ค่าที่พัก (บาท)</label>
+            <input type="number" step="0.01" id="tPayApt" value="0" />
+          </div>
+          <div class="form-group">
+            <label>ค่าเบี้ยเลี้ยง + พาหนะ (บาท)</label>
+            <input type="number" step="0.01" id="tPayAllow" value="0" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-aurora">บันทึกข้อมูลอบรม</button>
+          <button type="button" class="btn-ghost" onclick="closeModal('trainModal')">ยกเลิก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
