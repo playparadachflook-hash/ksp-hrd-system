@@ -226,6 +226,85 @@ app.get('/api/master', async (req, res) => {
 });
 
 // ==================== STATS & DASHBOARD ====================
+async function computePersonEntitlements(personId, fy) {
+  const { fyStart, fyEnd } = getFiscalDateRange(fy);
+  const { fyStart: prevStart, fyEnd: prevEnd } = getFiscalDateRange(fy - 1);
+
+  const [[personRow]] = await pool.query(
+    `SELECT p.person_id, p.person_type_id, p.leave_accumulate, p.leave_accumulate_peryear, pt.person_type_name
+     FROM hrd_person p
+     LEFT JOIN hrd_person_type pt ON pt.person_type_id = p.person_type_id
+     WHERE p.person_id = ? LIMIT 1`,
+    [Number(personId)]
+  );
+
+  const personTypeId = Number(personRow?.person_type_id || 1);
+  const personTypeName = personRow?.person_type_name || 'ข้าราชการ';
+
+  const [myRows] = await pool.query(
+    `SELECT hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type, allow_id
+     FROM hrd_leave_data
+     WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
+    [Number(personId), fyStart, fyEnd]
+  );
+  const [prevVacRows] = await pool.query(
+    `SELECT leave_startdate, leave_enddate, leave_day, leave_day_type
+     FROM hrd_leave_data
+     WHERE person_id = ? AND hrd_leave_type_id = 5 AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
+    [Number(personId), prevStart, prevEnd]
+  );
+
+  let prevUsedVac = 0;
+  prevVacRows.forEach((r) => {
+    prevUsedVac += Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
+  });
+
+  const usedMap = {};
+  myRows.forEach((r) => {
+    const d = Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
+    const tid = Number(r.hrd_leave_type_id);
+    usedMap[tid] = (usedMap[tid] || 0) + d;
+  });
+
+  const baseAcc = Number(personRow?.leave_accumulate || 0);
+  const annualRight = personRow?.leave_accumulate_peryear != null ? Number(personRow.leave_accumulate_peryear) : 10;
+  const carryOver = Math.max(0, annualRight - prevUsedVac) + baseAcc;
+  const usedVacation = usedMap[5] || 0;
+  const remainCurrent = Math.max(0, annualRight - usedVacation);
+  const usedFromAcc = Math.max(0, usedVacation - annualRight);
+  const remainAcc = Math.max(0, carryOver - usedFromAcc);
+
+  const rules = getLeaveRulesByPersonType(personTypeId, annualRight, carryOver);
+  const entitlements = rules.map((r) => {
+    const used = usedMap[r.typeId] || 0;
+    if (r.unlimited) {
+      return {
+        ...r,
+        used,
+        remain: null,
+        subText: `ใช้แล้ว ${used} วัน • ลาได้ตลอด (${personTypeName})`,
+      };
+    }
+    const remain = Math.max(0, r.max - used);
+    const subText = r.typeId === 5
+      ? `ปีนี้ ${annualRight} (เหลือ ${remainCurrent}) + สะสม ${carryOver} (เหลือ ${remainAcc})`
+      : `ใช้แล้ว ${used} / สิทธิ์ ${r.max} วัน`;
+    return { ...r, used, remain, subText };
+  });
+
+  return {
+    fiscalYear: fy,
+    personTypeId,
+    personTypeName,
+    accumulate: carryOver,
+    annualRight,
+    totalRight: annualRight + carryOver,
+    usedVacation,
+    remainingVacation: remainCurrent + remainAcc,
+    entitlements,
+  };
+}
+
 app.get('/api/leaves/stats', async (req, res) => {
   try {
     const fy = Number(req.query.year_name || getFiscalYear());
@@ -262,68 +341,7 @@ app.get('/api/leaves/stats', async (req, res) => {
 
     let myBalance = null;
     if (req.session.user) {
-      const [myRows] = await pool.query(
-        `SELECT hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type, allow_id
-         FROM hrd_leave_data
-         WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
-        [req.session.user.person_id, fyStart, fyEnd]
-      );
-      const { fyStart: prevStart, fyEnd: prevEnd } = getFiscalDateRange(fy - 1);
-      const [prevVacRows] = await pool.query(
-        `SELECT leave_startdate, leave_enddate, leave_day, leave_day_type
-         FROM hrd_leave_data
-         WHERE person_id = ? AND hrd_leave_type_id = 5 AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
-        [req.session.user.person_id, prevStart, prevEnd]
-      );
-      let prevUsedVac = 0;
-      prevVacRows.forEach((r) => {
-        prevUsedVac += Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
-      });
-
-      const usedMap = {};
-      myRows.forEach((r) => {
-        const d = Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
-        const tid = Number(r.hrd_leave_type_id);
-        usedMap[tid] = (usedMap[tid] || 0) + d;
-      });
-
-      const baseAcc = Number(req.session.user.leave_accumulate || 0);
-      const annualRight = Number(req.session.user.leave_accumulate_peryear ?? 10);
-      const carryOver = Math.max(0, annualRight - prevUsedVac) + baseAcc;
-      const usedVacation = usedMap[5] || 0;
-      const remainCurrent = Math.max(0, annualRight - usedVacation);
-      const usedFromAcc = Math.max(0, usedVacation - annualRight);
-      const remainAcc = Math.max(0, carryOver - usedFromAcc);
-
-      const rules = getLeaveRulesByPersonType(req.session.user.person_type_id, annualRight, carryOver);
-      const entitlements = rules.map((r) => {
-        const used = usedMap[r.typeId] || 0;
-        if (r.unlimited) {
-          return {
-            ...r,
-            used,
-            remain: null,
-            subText: `ใช้แล้ว ${used} วัน • ลาได้ตลอด (${req.session.user.person_type_name})`,
-          };
-        }
-        const remain = Math.max(0, r.max - used);
-        const subText = r.typeId === 5
-          ? `ปีนี้ ${annualRight} (เหลือ ${remainCurrent}) + สะสม ${carryOver} (เหลือ ${remainAcc})`
-          : `ใช้แล้ว ${used} / สิทธิ์ ${r.max} วัน`;
-        return { ...r, used, remain, subText };
-      });
-
-      myBalance = {
-        fiscalYear: fy,
-        personTypeId: req.session.user.person_type_id,
-        personTypeName: req.session.user.person_type_name,
-        accumulate: carryOver,
-        annualRight,
-        totalRight: annualRight + carryOver,
-        usedVacation,
-        remainingVacation: remainCurrent + remainAcc,
-        entitlements,
-      };
+      myBalance = await computePersonEntitlements(req.session.user.person_id, fy);
     }
 
     res.json({
@@ -577,6 +595,21 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
     const p = pRows[0] || {};
     const days = b.leave_day ? Number(b.leave_day) : calcLeaveDays(b.leave_startdate, b.leave_enddate, b.leave_day_type);
     const fy = b.year_name ? Number(b.year_name) : getFiscalYear(b.leave_startdate);
+    const leaveTypeId = Number(b.hrd_leave_type_id);
+
+    // Enforce leave entitlement rules based on person_type_id (non-admin)
+    if (!req.session.user.isAdmin && [1, 2, 3, 4, 5, 6].includes(leaveTypeId)) {
+      const bal = await computePersonEntitlements(personId, fy);
+      const rule = bal.entitlements.find((e) => Number(e.typeId) === leaveTypeId);
+      if (!rule) {
+        return res.status(400).json({ error: `ประเภทบุคลากร "${bal.personTypeName}" ไม่มีสิทธิ์ยื่นประเภทการลานี้` });
+      }
+      if (!rule.unlimited && days > rule.remain) {
+        return res.status(400).json({
+          error: `สิทธิ์${rule.name} (${bal.personTypeName}) คงเหลือ ${rule.remain} วัน ไม่เพียงพอสำหรับการลา ${days} วัน`,
+        });
+      }
+    }
 
     const [result] = await pool.query(
       `INSERT INTO hrd_leave_data (

@@ -79,7 +79,8 @@ function renderAuth() {
   if (state.user) {
     box.innerHTML = `
       <div style="font-weight:600;color:#fff;margin-bottom:2px;">${esc(state.user.fullName)}</div>
-      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">${esc(state.user.position_name || state.user.userGroupLabel)}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">${esc(state.user.position_name || state.user.userGroupLabel)}</div>
+      <div style="font-size:10.5px;color:#5eead4;margin-bottom:8px;">ประเภท: ${esc(state.user.person_type_name || 'บุคลากร')}</div>
       <button class="btn-soft btn-sm full-w" onclick="logout()">ออกจากระบบ</button>
     `;
     navMine.classList.remove('hidden');
