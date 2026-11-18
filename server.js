@@ -80,7 +80,7 @@ app.post('/api/auth/login', async (req, res) => {
     const pHash = md5(String(password).trim());
     const [rows] = await pool.query(
       `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
-              p.department_id, p.department_sub_id, p.position_id, p.leave_accumulate,
+              p.department_id, p.department_sub_id, p.position_id, p.leave_accumulate, p.leave_accumulate_peryear,
               pn.prename_name, pos.position_name, d.department_name, ds.department_sub_name,
               ug.user_groups_th
        FROM hrd_person p
@@ -112,6 +112,7 @@ app.post('/api/auth/login', async (req, res) => {
       user_groups_id: Number(user.user_groups_id || 3),
       userGroupLabel: user.user_groups_th || 'ผู้ใช้งานทั่วไป',
       leave_accumulate: Number(user.leave_accumulate || 0),
+      leave_accumulate_peryear: user.leave_accumulate_peryear != null ? Number(user.leave_accumulate_peryear) : 10,
       isAdmin: [1, 2].includes(Number(user.user_groups_id)),
     };
     res.json({ user: req.session.user });
@@ -239,11 +240,12 @@ app.get('/api/leaves/stats', async (req, res) => {
         else if (tid === 6) usedOrdain += d;
       });
       const accumulate = Number(req.session.user.leave_accumulate || 0);
-      const totalRight = accumulate + 10;
+      const annualRight = Number(req.session.user.leave_accumulate_peryear ?? 10);
+      const totalRight = accumulate + annualRight;
       myBalance = {
         fiscalYear: fy,
         accumulate,
-        annualRight: 10,
+        annualRight,
         totalRight,
         usedVacation,
         remainingVacation: Math.max(0, totalRight - usedVacation),
@@ -638,12 +640,15 @@ app.get('/api/trains', async (req, res) => {
     const [[cntRow]] = await pool.query(`SELECT COUNT(*) AS cnt FROM hrd_train_data t ${whereSql}`, params);
     const total = Number(cntRow?.cnt || 0);
     const [items] = await pool.query(
-      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
        LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
        LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       LEFT JOIN hrd_person p ON p.person_id = t.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
        ${whereSql}
        ORDER BY t.train_data_id DESC
        LIMIT ? OFFSET ?`,
@@ -889,16 +894,18 @@ app.get('/api/hrd/record', requireAuth, async (req, res) => {
 app.get('/api/reports/summary', async (req, res) => {
   try {
     const fy = Number(req.query.year_name || getFiscalYear());
+    const { fyStart, fyEnd } = getFiscalDateRange(fy);
     const [byDepartment] = await pool.query(
       `SELECT COALESCE(d.department_name, 'ไม่ระบุกลุ่มงาน') AS name,
               COUNT(*) AS total,
               SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)) AS total_days
        FROM hrd_leave_data l
-       LEFT JOIN hrd_department d ON d.department_id = l.department_id
-       WHERE l.year_name = ?
-       GROUP BY l.department_id, d.department_name
+       LEFT JOIN hrd_person p ON p.person_id = l.person_id
+       LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id, 0), p.department_id)
+       WHERE l.leave_startdate BETWEEN ? AND ?
+       GROUP BY COALESCE(NULLIF(l.department_id, 0), p.department_id), d.department_name
        ORDER BY total DESC`,
-      [fy]
+      [fyStart, fyEnd]
     );
     const [byType] = await pool.query(
       `SELECT COALESCE(lt.hrd_leave_type_name, 'ไม่ระบุ') AS name,
@@ -906,10 +913,10 @@ app.get('/api/reports/summary', async (req, res) => {
               SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)) AS total_days
        FROM hrd_leave_data l
        LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
-       WHERE l.year_name = ?
+       WHERE l.leave_startdate BETWEEN ? AND ?
        GROUP BY l.hrd_leave_type_id, lt.hrd_leave_type_name
        ORDER BY total DESC`,
-      [fy]
+      [fyStart, fyEnd]
     );
     const [topPersons] = await pool.query(
       `SELECT CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS name,
@@ -919,12 +926,12 @@ app.get('/api/reports/summary', async (req, res) => {
        FROM hrd_leave_data l
        LEFT JOIN hrd_person p ON p.person_id = l.person_id
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
-       LEFT JOIN hrd_department d ON d.department_id = p.department_id
-       WHERE l.year_name = ?
+       LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id, 0), p.department_id)
+       WHERE l.leave_startdate BETWEEN ? AND ?
        GROUP BY l.person_id, p.fname, p.lname, pn.prename_name, d.department_name
        ORDER BY total_days DESC
        LIMIT 20`,
-      [fy]
+      [fyStart, fyEnd]
     );
     res.json({ fiscalYear: fy, byDepartment, byType, topPersons });
   } catch (err) {
@@ -935,6 +942,7 @@ app.get('/api/reports/summary', async (req, res) => {
 app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
   try {
     const fy = Number(req.query.year_name || getFiscalYear());
+    const { fyStart, fyEnd } = getFiscalDateRange(fy);
     const section = req.query.section || 'department';
     const [summary] = await Promise.all([
       (async () => {
@@ -942,17 +950,19 @@ app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
           `SELECT COALESCE(d.department_name, 'ไม่ระบุกลุ่มงาน') AS name, COUNT(*) AS total,
                   ROUND(SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)), 1) AS total_days
            FROM hrd_leave_data l
-           LEFT JOIN hrd_department d ON d.department_id = l.department_id
-           WHERE l.year_name = ? GROUP BY l.department_id, d.department_name ORDER BY total DESC`,
-          [fy]
+           LEFT JOIN hrd_person p ON p.person_id = l.person_id
+           LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id, 0), p.department_id)
+           WHERE l.leave_startdate BETWEEN ? AND ?
+           GROUP BY COALESCE(NULLIF(l.department_id, 0), p.department_id), d.department_name ORDER BY total DESC`,
+          [fyStart, fyEnd]
         );
         const [byType] = await pool.query(
           `SELECT COALESCE(lt.hrd_leave_type_name, 'ไม่ระบุ') AS name, COUNT(*) AS total,
                   ROUND(SUM(COALESCE(l.leave_day, DATEDIFF(l.leave_enddate, l.leave_startdate) + 1)), 1) AS total_days
            FROM hrd_leave_data l
            LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
-           WHERE l.year_name = ? GROUP BY l.hrd_leave_type_id, lt.hrd_leave_type_name ORDER BY total DESC`,
-          [fy]
+           WHERE l.leave_startdate BETWEEN ? AND ? GROUP BY l.hrd_leave_type_id, lt.hrd_leave_type_name ORDER BY total DESC`,
+          [fyStart, fyEnd]
         );
         return { byDepartment, byType };
       })(),
@@ -1000,7 +1010,7 @@ app.get('/api/persons', requireAdmin, async (req, res) => {
        LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
        ${where}
        ORDER BY p.fname, p.lname
-       LIMIT 200`,
+       LIMIT 500`,
       params
     );
     res.json({ items: rows });
