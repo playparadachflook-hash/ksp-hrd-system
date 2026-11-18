@@ -65,6 +65,47 @@ function getFiscalDateRange(fy) {
   };
 }
 
+function getLeaveRulesByPersonType(personTypeId, annualVacRight, carryOverVac) {
+  const pt = Number(personTypeId || 1);
+  if (pt === 5 || pt === 6) {
+    // ลูกจ้างชั่วคราว (รายเดือน / รายวัน) — ลาได้ตลอด
+    return [
+      { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: null, unlimited: true },
+      { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: null, unlimited: true },
+      { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: null, unlimited: true },
+      { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: null, unlimited: true },
+    ];
+  }
+  if (pt === 3) {
+    // พนักงานราชการ
+    return [
+      { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: annualVacRight + carryOverVac, annual: annualVacRight, carryOver: carryOverVac },
+      { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: 30 },
+      { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: 10 },
+      { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: 90 },
+    ];
+  }
+  if (pt === 4) {
+    // พนักงานกระทรวงสาธารณสุข (พกส.)
+    return [
+      { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: annualVacRight + carryOverVac, annual: annualVacRight, carryOver: carryOverVac },
+      { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: 45 },
+      { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: 15 },
+      { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: 90 },
+      { typeId: 6, name: 'ลาอุปสมบท/ฮัจย์', icon: '🙏', color: '#2563eb', max: 120 },
+    ];
+  }
+  // ข้าราชการ / ลูกจ้างประจำ (1, 2)
+  return [
+    { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: annualVacRight + carryOverVac, annual: annualVacRight, carryOver: carryOverVac },
+    { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: 60 },
+    { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: 45 },
+    { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: 90 },
+    { typeId: 3, name: 'ช่วยภริยาคลอด', icon: '👶', color: '#9333ea', max: 15 },
+    { typeId: 6, name: 'ลาอุปสมบท/ฮัจย์', icon: '🙏', color: '#2563eb', max: 120 },
+  ];
+}
+
 // ==================== AUTH ====================
 app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.session.user || null });
@@ -80,15 +121,17 @@ app.post('/api/auth/login', async (req, res) => {
     const pHash = md5(String(password).trim());
     const [rows] = await pool.query(
       `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
-              p.department_id, p.department_sub_id, p.position_id, p.leave_accumulate, p.leave_accumulate_peryear,
+              p.department_id, p.department_sub_id, p.position_id, p.person_type_id,
+              p.leave_accumulate, p.leave_accumulate_peryear,
               pn.prename_name, pos.position_name, d.department_name, ds.department_sub_name,
-              ug.user_groups_th
+              ug.user_groups_th, pt.person_type_name
        FROM hrd_person p
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
        LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
        LEFT JOIN hrd_department d ON d.department_id = p.department_id
        LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
        LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
+       LEFT JOIN hrd_person_type pt ON pt.person_type_id = p.person_type_id
        WHERE p.username = ? AND (p.password = ? OR p.password = ?)
        LIMIT 1`,
       [u, pHash, String(password).trim()]
@@ -109,6 +152,8 @@ app.post('/api/auth/login', async (req, res) => {
       department_sub_name: user.department_sub_name || '',
       position_id: user.position_id,
       position_name: user.position_name || '',
+      person_type_id: Number(user.person_type_id || 1),
+      person_type_name: user.person_type_name || 'ข้าราชการ',
       user_groups_id: Number(user.user_groups_id || 3),
       userGroupLabel: user.user_groups_th || 'ผู้ใช้งานทั่วไป',
       leave_accumulate: Number(user.leave_accumulate || 0),
@@ -223,42 +268,61 @@ app.get('/api/leaves/stats', async (req, res) => {
          WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
         [req.session.user.person_id, fyStart, fyEnd]
       );
-      let usedVacation = 0;
-      let usedSick = 0;
-      let usedBusiness = 0;
-      let usedMaternity = 0;
-      let usedWifeBirth = 0;
-      let usedOrdain = 0;
+      const { fyStart: prevStart, fyEnd: prevEnd } = getFiscalDateRange(fy - 1);
+      const [prevVacRows] = await pool.query(
+        `SELECT leave_startdate, leave_enddate, leave_day, leave_day_type
+         FROM hrd_leave_data
+         WHERE person_id = ? AND hrd_leave_type_id = 5 AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
+        [req.session.user.person_id, prevStart, prevEnd]
+      );
+      let prevUsedVac = 0;
+      prevVacRows.forEach((r) => {
+        prevUsedVac += Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
+      });
+
+      const usedMap = {};
       myRows.forEach((r) => {
         const d = Number(r.leave_day || calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type));
         const tid = Number(r.hrd_leave_type_id);
-        if (tid === 5) usedVacation += d;
-        else if (tid === 1) usedSick += d;
-        else if (tid === 4) usedBusiness += d;
-        else if (tid === 2) usedMaternity += d;
-        else if (tid === 3) usedWifeBirth += d;
-        else if (tid === 6) usedOrdain += d;
+        usedMap[tid] = (usedMap[tid] || 0) + d;
       });
-      const accumulate = Number(req.session.user.leave_accumulate || 0);
+
+      const baseAcc = Number(req.session.user.leave_accumulate || 0);
       const annualRight = Number(req.session.user.leave_accumulate_peryear ?? 10);
-      const totalRight = accumulate + annualRight;
+      const carryOver = Math.max(0, annualRight - prevUsedVac) + baseAcc;
+      const usedVacation = usedMap[5] || 0;
+      const remainCurrent = Math.max(0, annualRight - usedVacation);
+      const usedFromAcc = Math.max(0, usedVacation - annualRight);
+      const remainAcc = Math.max(0, carryOver - usedFromAcc);
+
+      const rules = getLeaveRulesByPersonType(req.session.user.person_type_id, annualRight, carryOver);
+      const entitlements = rules.map((r) => {
+        const used = usedMap[r.typeId] || 0;
+        if (r.unlimited) {
+          return {
+            ...r,
+            used,
+            remain: null,
+            subText: `ใช้แล้ว ${used} วัน • ลาได้ตลอด (${req.session.user.person_type_name})`,
+          };
+        }
+        const remain = Math.max(0, r.max - used);
+        const subText = r.typeId === 5
+          ? `ปีนี้ ${annualRight} (เหลือ ${remainCurrent}) + สะสม ${carryOver} (เหลือ ${remainAcc})`
+          : `ใช้แล้ว ${used} / สิทธิ์ ${r.max} วัน`;
+        return { ...r, used, remain, subText };
+      });
+
       myBalance = {
         fiscalYear: fy,
-        accumulate,
+        personTypeId: req.session.user.person_type_id,
+        personTypeName: req.session.user.person_type_name,
+        accumulate: carryOver,
         annualRight,
-        totalRight,
+        totalRight: annualRight + carryOver,
         usedVacation,
-        remainingVacation: Math.max(0, totalRight - usedVacation),
-        usedSick,
-        usedBusiness,
-        entitlements: [
-          { typeId: 5, name: 'ลาพักผ่อน', icon: '🌴', color: '#0d9488', max: totalRight, used: usedVacation, remain: Math.max(0, totalRight - usedVacation) },
-          { typeId: 1, name: 'ลาป่วย', icon: '🤒', color: '#16a34a', max: 60, used: usedSick, remain: Math.max(0, 60 - usedSick) },
-          { typeId: 4, name: 'ลากิจส่วนตัว', icon: '💼', color: '#ea580c', max: 45, used: usedBusiness, remain: Math.max(0, 45 - usedBusiness) },
-          { typeId: 2, name: 'ลาคลอดบุตร', icon: '🤱', color: '#0284c7', max: 90, used: usedMaternity, remain: Math.max(0, 90 - usedMaternity) },
-          { typeId: 3, name: 'ช่วยภริยาคลอด', icon: '👶', color: '#9333ea', max: 15, used: usedWifeBirth, remain: Math.max(0, 15 - usedWifeBirth) },
-          { typeId: 6, name: 'ลาอุปสมบท/ฮัจย์', icon: '🙏', color: '#2563eb', max: 120, used: usedOrdain, remain: Math.max(0, 120 - usedOrdain) },
-        ],
+        remainingVacation: remainCurrent + remainAcc,
+        entitlements,
       };
     }
 

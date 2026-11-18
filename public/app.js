@@ -143,18 +143,20 @@ async function loadDashboardStats() {
     document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
   }
 
-  // All Leave Entitlements Strip
+  // All Leave Entitlements Strip (by person_type_id)
   const entGrid = document.getElementById('entitlementsGrid');
   if (data.myBalance && Array.isArray(data.myBalance.entitlements) && data.myBalance.entitlements.length) {
     entGrid.classList.remove('hidden');
     entGrid.innerHTML = data.myBalance.entitlements.map((e) => {
-      const remainPct = e.max > 0 ? Math.round((e.remain / e.max) * 100) : 0;
+      const remainLabel = e.unlimited ? 'ไม่จำกัด' : e.remain;
+      const remainUnit = e.unlimited ? `(ใช้แล้ว ${e.used} วัน)` : 'วันคงเหลือ';
+      const remainPct = e.unlimited ? 100 : (e.max > 0 ? Math.round((e.remain / e.max) * 100) : 0);
       return `
         <div class="ent-card" onclick="openMyLeavesFilter('${e.typeId}', '')" title="คลิกเพื่อดูรายการ${esc(e.name)}">
           <div class="ent-top"><span>${e.icon} ${esc(e.name)}</span></div>
-          <div class="ent-nums"><strong>${e.remain}</strong><span>วันคงเหลือ</span></div>
+          <div class="ent-nums"><strong style="${e.unlimited ? 'font-size:19px;' : ''}">${remainLabel}</strong><span>${remainUnit}</span></div>
           <div class="ent-bar"><div class="ent-bar-fill" style="width:${remainPct}%;background:${e.color};"></div></div>
-          <div class="ent-sub">ใช้แล้ว ${e.used} / สิทธิ์ ${e.max} วัน</div>
+          <div class="ent-sub">${esc(e.subText || `ใช้แล้ว ${e.used} / สิทธิ์ ${e.max} วัน`)}</div>
         </div>
       `;
     }).join('');
