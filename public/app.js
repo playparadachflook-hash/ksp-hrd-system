@@ -143,36 +143,22 @@ async function loadDashboardStats() {
     document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
   }
 
-  // Circular Ring for Vacation Balance + All Leave Entitlements Strip
-  const fg = document.getElementById('vacRingFg');
+  // All Leave Entitlements Strip
   const entGrid = document.getElementById('entitlementsGrid');
-  const circ = 314.16;
-  if (data.myBalance) {
-    const b = data.myBalance;
-    const pct = b.totalRight > 0 ? Math.min(1, b.remainingVacation / b.totalRight) : 0;
-    fg.style.strokeDashoffset = String(circ * (1 - pct));
-    document.getElementById('vacRemainNum').textContent = b.remainingVacation;
-    document.getElementById('vacBalanceDetail').innerHTML =
-      `สะสม ${b.accumulate} + ปีนี้ ${b.annualRight} = <strong>${b.totalRight}</strong> วัน (ใช้แล้ว ${b.usedVacation} วัน)<br><small style="color:#0284c7;">คลิกเพื่อดูข้อมูลการลาพักผ่อน →</small>`;
-
-    if (Array.isArray(b.entitlements) && b.entitlements.length) {
-      entGrid.classList.remove('hidden');
-      entGrid.innerHTML = b.entitlements.map((e) => {
-        const remainPct = e.max > 0 ? Math.round((e.remain / e.max) * 100) : 0;
-        return `
-          <div class="ent-card" onclick="openMyLeavesFilter('${e.typeId}', '')" title="คลิกเพื่อดูรายการ${esc(e.name)}">
-            <div class="ent-top"><span>${e.icon} ${esc(e.name)}</span></div>
-            <div class="ent-nums"><strong>${e.remain}</strong><span>วันคงเหลือ</span></div>
-            <div class="ent-bar"><div class="ent-bar-fill" style="width:${remainPct}%;background:${e.color};"></div></div>
-            <div class="ent-sub">ใช้แล้ว ${e.used} / สิทธิ์ ${e.max} วัน</div>
-          </div>
-        `;
-      }).join('');
-    }
+  if (data.myBalance && Array.isArray(data.myBalance.entitlements) && data.myBalance.entitlements.length) {
+    entGrid.classList.remove('hidden');
+    entGrid.innerHTML = data.myBalance.entitlements.map((e) => {
+      const remainPct = e.max > 0 ? Math.round((e.remain / e.max) * 100) : 0;
+      return `
+        <div class="ent-card" onclick="openMyLeavesFilter('${e.typeId}', '')" title="คลิกเพื่อดูรายการ${esc(e.name)}">
+          <div class="ent-top"><span>${e.icon} ${esc(e.name)}</span></div>
+          <div class="ent-nums"><strong>${e.remain}</strong><span>วันคงเหลือ</span></div>
+          <div class="ent-bar"><div class="ent-bar-fill" style="width:${remainPct}%;background:${e.color};"></div></div>
+          <div class="ent-sub">ใช้แล้ว ${e.used} / สิทธิ์ ${e.max} วัน</div>
+        </div>
+      `;
+    }).join('');
   } else {
-    fg.style.strokeDashoffset = String(circ * 0.65);
-    document.getElementById('vacRemainNum').textContent = '-';
-    document.getElementById('vacBalanceDetail').textContent = 'เข้าสู่ระบบเพื่อดูยอดวันลาพักผ่อน';
     entGrid.classList.add('hidden');
   }
 
