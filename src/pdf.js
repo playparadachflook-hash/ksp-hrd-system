@@ -72,7 +72,7 @@ function drawSupervisorAndOrder(doc, supY, ordY, headName, deptName, allowId) {
   doc.text(`( หัวหน้า ${deptName || 'กลุ่มงาน'} )`, 325, supY + 98, { width: 220, align: 'center', lineBreak: false });
   doc.text('วันที่........../........................../............', 325, supY + 118, { width: 225, lineBreak: false });
 
-  doc.font('ThaiBold').fontSize(10.5).text('คำสั่ง', 325, ordY, { underline: true, lineBreak: false });
+  doc.font('ThaiBold').fontSize(10.5).text('คำสั่ง', 325, ordY, { underline: true });
   drawCheckbox(doc, 332, ordY + 22, allowId === 2, 10);
   doc.font('Thai').fontSize(10.5).text('อนุญาต', 348, ordY + 19, { lineBreak: false });
   drawCheckbox(doc, 408, ordY + 22, allowId === 3, 10);
