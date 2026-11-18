@@ -26,43 +26,24 @@
           <span class="nav-ico">📁</span><span>ประวัติการลาของฉัน</span>
         </button>
 
-        <div class="nav-group-label">ข้อมูลบุคลากร (กพ.7)</div>
-        <button class="nav-pill" data-sec="general" onclick="openHrdSection('general', this)">
-          <span class="nav-ico">👤</span><span>ข้อมูลทั่วไป</span>
-        </button>
-
         <div class="nav-group-label">ระบบการลาออนไลน์</div>
         <button class="nav-pill active" data-tab="leaves" onclick="switchTab('leaves')">
           <span class="nav-ico">🗓️</span><span>ปฏิทิน &amp; รายการลา</span>
         </button>
-        <button class="nav-pill" data-leave-type="1" onclick="openLeaveFormType(1, this)">
-          <span class="nav-ico">✅</span><span>ลงข้อมูลการลา ป่วย กิจ พักผ่อน คลอด</span>
-        </button>
-        <button class="nav-pill" data-leave-type="6" onclick="openLeaveFormType(6, this)">
-          <span class="nav-ico">🙏</span><span>ลงข้อมูลการบวช</span>
-        </button>
-        <button class="nav-pill" data-leave-type="3" onclick="openLeaveFormType(3, this)">
-          <span class="nav-ico">👶</span><span>ลาช่วยเหลือภริยาคลอดบุตร</span>
-        </button>
-        <button class="nav-pill" data-leave-type="7" onclick="openLeaveFormType(7, this)">
-          <span class="nav-ico">🪖</span><span>ลาตรวจเลือก/เตรียมพล</span>
-        </button>
-        <button class="nav-pill" data-leave-type="12" onclick="openLeaveFormType(12, this)">
-          <span class="nav-ico">🔄</span><span>ยกเลิกการลา</span>
-        </button>
-
-        <div class="nav-group-label">อบรม / ไปราชการ / บัญชี</div>
-        <button class="nav-pill" data-tab="trains" onclick="switchTab('trains')">
-          <span class="nav-ico">🖨️</span><span>พิมพ์การอบรม / ไปราชการ</span>
+        <button class="nav-pill" onclick="openLeaveFormModal()">
+          <span class="nav-ico">✍️</span><span>ยื่นใบลา / ยกเลิกวันลา</span>
         </button>
         <button class="nav-pill" data-tab="reports" onclick="switchTab('reports')">
           <span class="nav-ico">📊</span><span>รายงาน &amp; สถิติ</span>
         </button>
-        <button class="nav-pill" data-tab="password" onclick="switchTab('password')">
-          <span class="nav-ico">🔑</span><span>เปลี่ยนรหัสผ่าน</span>
+
+        <div class="nav-group-label">บัญชีและการจัดการ</div>
+        <button class="nav-pill" data-tab="account" onclick="switchTab('account')">
+          <span class="nav-ico">👤</span><span>ข้อมูลส่วนตัว &amp; เปลี่ยนรหัสผ่าน</span>
         </button>
         <button class="nav-pill admin-only hidden" data-tab="admin" onclick="switchTab('admin')">
           <span class="nav-ico">🛡️</span><span>อนุมัติ &amp; จัดการระบบ</span>
+          <span id="adminPendingBadge" class="pending-badge hidden">0</span>
         </button>
       </nav>
 
@@ -223,6 +204,7 @@
                   <label>ลักษณะการลา *</label>
                   <select id="fDayType" required onchange="recalcDays()"></select>
                 </div>
+                <div class="form-group full hidden" id="leaveTypeBalanceHint"></div>
                 <div class="form-group">
                   <label>ตั้งแต่วันที่ *</label>
                   <input type="date" id="fStartDate" required onchange="recalcDays()" />
@@ -301,39 +283,38 @@
         </div>
       </section>
 
-      <!-- TAB: HRD PROFILE RECORD (10 SCREENSHOT SECTIONS) -->
-      <section id="tab-hrd-record" class="tab-panel hidden">
-        <div class="glass-panel">
-          <div class="panel-head">
-            <h2 id="hrdSecTitle">ข้อมูลบุคลากร (กพ.7)</h2>
-            <div style="display:flex;gap:8px;align-items:center;" class="admin-only hidden">
-              <label style="font-size:13px;">ดูข้อมูลบุคลากร:</label>
-              <select id="hrdPersonSelect" onchange="loadHrdRecord(currentHrdSection)"></select>
+      <!-- TAB: ACCOUNT (PROFILE + CHANGE PASSWORD) -->
+      <section id="tab-account" class="tab-panel hidden">
+        <div class="account-grid">
+          <div class="glass-panel">
+            <div class="panel-head">
+              <h2 id="hrdSecTitle">👤 ข้อมูลส่วนตัวบุคลากร</h2>
+              <div style="display:flex;gap:8px;align-items:center;" class="admin-only hidden">
+                <label style="font-size:13px;">ดูข้อมูลบุคลากร:</label>
+                <select id="hrdPersonSelect" onchange="loadHrdRecord('general')"></select>
+              </div>
             </div>
+            <div id="hrdRecordContent"></div>
           </div>
-          <div id="hrdRecordContent"></div>
-        </div>
-      </section>
 
-      <!-- TAB: CHANGE PASSWORD -->
-      <section id="tab-password" class="tab-panel hidden">
-        <div class="glass-panel" style="max-width:480px;">
-          <div class="panel-head"><h2>🔑 เปลี่ยนรหัสผ่าน</h2></div>
-          <form onsubmit="submitChangePassword(event)">
-            <div class="form-group" style="margin-bottom:12px;">
-              <label>รหัสผ่านเดิม *</label>
-              <input type="password" id="cpOld" required />
-            </div>
-            <div class="form-group" style="margin-bottom:12px;">
-              <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร) *</label>
-              <input type="password" id="cpNew" required minlength="4" />
-            </div>
-            <div class="form-group" style="margin-bottom:16px;">
-              <label>ยืนยันรหัสผ่านใหม่ *</label>
-              <input type="password" id="cpConfirm" required minlength="4" />
-            </div>
-            <button type="submit" class="btn-aurora">บันทึกรหัสผ่านใหม่</button>
-          </form>
+          <div class="glass-panel">
+            <div class="panel-head"><h2>🔑 เปลี่ยนรหัสผ่าน</h2></div>
+            <form onsubmit="submitChangePassword(event)">
+              <div class="form-group" style="margin-bottom:12px;">
+                <label>รหัสผ่านเดิม *</label>
+                <input type="password" id="cpOld" required />
+              </div>
+              <div class="form-group" style="margin-bottom:12px;">
+                <label>รหัสผ่านใหม่ (อย่างน้อย 4 ตัวอักษร) *</label>
+                <input type="password" id="cpNew" required minlength="4" />
+              </div>
+              <div class="form-group" style="margin-bottom:16px;">
+                <label>ยืนยันรหัสผ่านใหม่ *</label>
+                <input type="password" id="cpConfirm" required minlength="4" />
+              </div>
+              <button type="submit" class="btn-aurora">บันทึกรหัสผ่านใหม่</button>
+            </form>
+          </div>
         </div>
       </section>
 

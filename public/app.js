@@ -9,6 +9,7 @@ const state = {
   page: 1,
   trainPage: 1,
   adminPage: 1,
+  myEntitlements: [],
 };
 
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -144,7 +145,21 @@ async function loadDashboardStats() {
     document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
   }
 
+  // Admin pending approval badge
+  const adminBadge = document.getElementById('adminPendingBadge');
+  if (adminBadge) {
+    const gp = Number(data.totals.globalPending || 0);
+    if (state.user?.isAdmin && gp > 0) {
+      adminBadge.textContent = gp > 99 ? '99+' : String(gp);
+      adminBadge.classList.remove('hidden');
+    } else {
+      adminBadge.classList.add('hidden');
+    }
+  }
+
   // All Leave Entitlements Strip (by person_type_id)
+  state.myEntitlements = data.myBalance?.entitlements || [];
+  populateLeaveTypeSelect();
   const entGrid = document.getElementById('entitlementsGrid');
   if (data.myBalance && Array.isArray(data.myBalance.entitlements) && data.myBalance.entitlements.length) {
     entGrid.classList.remove('hidden');
@@ -218,6 +233,7 @@ function switchTab(tab) {
   } else {
     document.getElementById(`tab-${tab}`).classList.remove('hidden');
     if (tab === 'create') resetLeaveForm();
+    if (tab === 'account') loadHrdRecord('general');
     if (tab === 'trains') loadTrains(1);
     if (tab === 'reports') loadReports();
     if (tab === 'admin') loadAdminLeaves(1);
@@ -256,6 +272,7 @@ async function loadCalendar() {
     year: state.calYear,
     month: state.calMonth,
     type_id: document.getElementById('filterType').value,
+    department_id: document.getElementById('filterDept').value,
     mine: state.currentTab === 'mine' ? '1' : '0',
   });
   const data = await api(`/api/leaves/calendar?${params.toString()}`);
@@ -335,6 +352,7 @@ async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
   } else {
     tbody.innerHTML = data.items.map((r) => {
       const canPrint = state.user && (state.user.isAdmin || Number(r.person_id) === Number(state.user.person_id));
+      const canCancel = canPrint && Number(r.allow_id) === 2 && Number(r.hrd_leave_type_id) !== 12;
       const dateTxt = r.leave_startdate === r.leave_enddate
         ? fmtThaiDate(r.leave_startdate)
         : `${fmtThaiDate(r.leave_startdate)} - ${fmtThaiDate(r.leave_enddate)}`;
@@ -350,6 +368,7 @@ async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
           <td style="white-space:nowrap">
             <button class="btn-soft btn-sm" onclick="openLeaveDetail(${r.hrd_leave_id})">ดูรายละเอียด</button>
             ${canPrint ? `<button class="btn-aurora btn-sm" onclick="openPdfModal('แบบฟอร์มใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ PDF</button>` : ''}
+            ${canCancel ? `<button class="btn-ghost btn-sm" onclick="requestCancelLeave(${r.hrd_leave_id})" title="ขอยกเลิกวันลาที่อนุมัติแล้ว">🔄 ขอยกเลิก</button>` : ''}
           </td>
         </tr>
       `;
@@ -370,6 +389,7 @@ async function openLeaveDetail(id) {
   const fullName = `${r.prename_name || ''}${r.fname || ''} ${r.lname || ''}`.trim();
   const canPrint = state.user && (state.user.isAdmin || Number(r.person_id) === Number(state.user.person_id));
   const canEdit = canPrint && (state.user.isAdmin || Number(r.allow_id) === 1);
+  const canCancel = canPrint && Number(r.allow_id) === 2 && Number(r.hrd_leave_type_id) !== 12;
 
   document.getElementById('ldTitle').textContent = `รายละเอียดใบลา #${r.hrd_leave_id} • ${r.hrd_leave_type_name}`;
   document.getElementById('ldBody').innerHTML = `
@@ -390,6 +410,7 @@ async function openLeaveDetail(id) {
   actions.innerHTML = `
     ${canPrint ? `<button class="btn-aurora" onclick="closeModal('leaveDetailModal');openPdfModal('แบบฟอร์มใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ พิมพ์แบบฟอร์ม PDF เดิม</button>` : ''}
     ${canEdit ? `<button class="btn-soft" onclick="closeModal('leaveDetailModal');editLeave(${r.hrd_leave_id})">✏️ แก้ไข</button>` : ''}
+    ${canCancel ? `<button class="btn-soft" onclick="closeModal('leaveDetailModal');requestCancelLeave(${r.hrd_leave_id})">🔄 ขอยกเลิกใบลานี้</button>` : ''}
     <button class="btn-ghost" onclick="closeModal('leaveDetailModal')">ปิด</button>
   `;
   document.getElementById('leaveDetailModal').classList.remove('hidden');
@@ -424,12 +445,51 @@ function onLeavePersonChange() {
   populateAssignedSelect(state.user?.department_id, state.user?.person_id);
 }
 
+function populateLeaveTypeSelect(selectedVal = '') {
+  const el = document.getElementById('fTypeId');
+  if (!el || !state.master?.leaveTypes) return;
+  let types = state.master.leaveTypes;
+  // Filter by logged-in user's person_type_id entitlements (non-admin), always keeping 7 (ตรวจเลือก) & 12 (ยกเลิกการลา)
+  if (state.user && !state.user.isAdmin && state.myEntitlements.length) {
+    const allowedIds = new Set(state.myEntitlements.map((e) => Number(e.typeId)));
+    allowedIds.add(7);
+    allowedIds.add(12);
+    const filtered = types.filter((t) => allowedIds.has(Number(t.hrd_leave_type_id)));
+    if (filtered.length) types = filtered;
+  }
+  const prev = selectedVal || el.value;
+  el.innerHTML = types.map((x) => `<option value="${x.hrd_leave_type_id}">${esc(x.hrd_leave_type_name)}</option>`).join('');
+  if (prev && [...el.options].some((o) => o.value === String(prev))) {
+    el.value = String(prev);
+  }
+}
+
 function openLeaveFormModal(typeId = 1) {
   if (!state.user) return openLoginModal();
   resetLeaveForm();
-  document.getElementById('fTypeId').value = String(typeId);
+  populateLeaveTypeSelect(typeId);
   onLeaveTypeChange();
   populateAssignedSelect(state.user.department_id, state.user.person_id);
+  document.getElementById('leaveFormModal').classList.remove('hidden');
+}
+
+async function requestCancelLeave(id) {
+  if (!state.user) return openLoginModal();
+  const { leave: r } = await api(`/api/leaves/${id}`);
+  resetLeaveForm();
+  populateLeaveTypeSelect(12);
+  document.getElementById('formLeaveTitle').textContent = `ขอยกเลิกวันลา (อ้างอิงใบลา #${r.hrd_leave_id})`;
+  document.getElementById('fTypeId').value = '12';
+  document.getElementById('fDayType').value = r.leave_day_type || 1;
+  document.getElementById('fStartDate').value = String(r.leave_startdate).slice(0, 10);
+  document.getElementById('fEndDate').value = String(r.leave_enddate).slice(0, 10);
+  document.getElementById('fLeaveDay').value = r.calc_days || r.leave_day || 1;
+  document.getElementById('fYearName').value = r.year_name || state.fiscalYear;
+  document.getElementById('fBecauseCancel').value = `ขอยกเลิก${r.hrd_leave_type_name || 'การลา'} (อ้างอิงเลขที่ #${r.hrd_leave_id})`;
+  populateAssignedSelect(r.department_id || state.user.department_id, r.person_id, r.leave_assigned_person_id || '');
+  document.getElementById('fContactTel').value = r.leave_contact_tel || state.user.phone_number || '';
+  document.getElementById('fContactAddr').value = r.leave_contact || '';
+  onLeaveTypeChange();
   document.getElementById('leaveFormModal').classList.remove('hidden');
 }
 
@@ -445,15 +505,33 @@ function resetLeaveForm() {
   document.getElementById('fContactAddr').value = '';
   document.getElementById('fContactTel').value = state.user?.phone_number || '';
   if (document.getElementById('fPersonId')) document.getElementById('fPersonId').value = '';
+  populateLeaveTypeSelect();
   populateAssignedSelect(state.user?.department_id, state.user?.person_id);
   onLeaveTypeChange();
   recalcDays();
 }
 
 function onLeaveTypeChange() {
-  const isCancel = Number(document.getElementById('fTypeId').value) === 12;
+  const typeId = Number(document.getElementById('fTypeId').value);
+  const isCancel = typeId === 12;
   document.getElementById('fgBecause').classList.toggle('hidden', isCancel);
   document.getElementById('fgBecauseCancel').classList.toggle('hidden', !isCancel);
+
+  const hint = document.getElementById('leaveTypeBalanceHint');
+  if (!hint) return;
+  const rule = state.myEntitlements.find((e) => Number(e.typeId) === typeId);
+  if (rule) {
+    hint.className = 'form-group full balance-hint-box' + (!rule.unlimited && rule.remain <= 0 ? ' danger' : (!rule.unlimited && rule.remain <= 3 ? ' warn' : ''));
+    hint.innerHTML = rule.unlimited
+      ? `<span>${rule.icon} <strong>${esc(rule.name)}</strong> (${esc(state.user?.person_type_name || 'สิทธิ์ของคุณ')})</span><span>สิทธิ์: <strong>ลาได้ตลอด</strong> • ใช้แล้ว ${rule.used} วัน</span>`
+      : `<span>${rule.icon} <strong>${esc(rule.name)}</strong> (${esc(state.user?.person_type_name || 'สิทธิ์ของคุณ')})</span><span>คงเหลือ: <strong>${rule.remain} วัน</strong> • ${esc(rule.subText || `ใช้แล้ว ${rule.used} / ${rule.max} วัน`)}</span>`;
+  } else if (isCancel) {
+    hint.className = 'form-group full balance-hint-box warn';
+    hint.innerHTML = '<span>🔄 <strong>ขอยกเลิกวันลา</strong></span><span>ระบุช่วงวันที่ต้องการขอยกเลิกและเหตุผล (เมื่ออนุมัติแล้วระบบจะคืนวันลาให้ตามสิทธิ์)</span>';
+  } else {
+    hint.className = 'form-group full hidden';
+    hint.innerHTML = '';
+  }
 }
 
 function recalcDays() {

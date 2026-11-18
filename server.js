@@ -333,6 +333,10 @@ app.get('/api/leaves/stats', async (req, res) => {
     );
     const [[trainStats]] = await pool.query('SELECT COUNT(*) AS total_trains FROM hrd_train_data');
     const [[personStats]] = await pool.query('SELECT COUNT(*) AS total_persons FROM hrd_person');
+    const [[pendingAll]] = await pool.query(
+      'SELECT COUNT(*) AS cnt FROM hrd_leave_data WHERE leave_startdate BETWEEN ? AND ? AND allow_id = 1',
+      [fyStart, fyEnd]
+    );
     let myTrains = 0;
     if (uid !== null) {
       const [[myTr]] = await pool.query('SELECT COUNT(*) AS cnt FROM hrd_train_data WHERE person_id = ?', [uid]);
@@ -350,6 +354,7 @@ app.get('/api/leaves/stats', async (req, res) => {
       totals: {
         total: Number(totals?.total || 0),
         pending: Number(totals?.pending || 0),
+        globalPending: Number(pendingAll?.cnt || 0),
         approved: Number(totals?.approved || 0),
         rejected: Number(totals?.rejected || 0),
         totalTrains: Number(trainStats?.total_trains || 0),
@@ -424,6 +429,10 @@ app.get('/api/leaves/calendar', async (req, res) => {
     if (req.query.type_id) {
       extra += ' AND l.hrd_leave_type_id = ?';
       params.push(Number(req.query.type_id));
+    }
+    if (req.query.department_id) {
+      extra += ' AND COALESCE(NULLIF(l.department_id, 0), p.department_id) = ?';
+      params.push(Number(req.query.department_id));
     }
     if (req.query.mine === '1' && req.session.user) {
       extra += ' AND l.person_id = ?';
