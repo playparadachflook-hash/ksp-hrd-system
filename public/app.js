@@ -412,6 +412,14 @@ function onLeaveTypeChange() {
 }
 
 function recalcDays() {
+  const startVal = document.getElementById('fStartDate').value;
+  if (startVal) {
+    const sd = new Date(startVal);
+    if (!Number.isNaN(sd.getTime())) {
+      const ce = sd.getMonth() + 1 >= 10 ? sd.getFullYear() + 1 : sd.getFullYear();
+      document.getElementById('fYearName').value = String(ce + 543);
+    }
+  }
   const dayType = Number(document.getElementById('fDayType').value || 1);
   if (dayType === 2 || dayType === 3) {
     document.getElementById('fLeaveDay').value = '0.5';

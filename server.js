@@ -57,6 +57,14 @@ function getFiscalYear(isoDate) {
   return ce + 543;
 }
 
+function getFiscalDateRange(fy) {
+  const ce = Number(fy) > 2400 ? Number(fy) - 543 : Number(fy);
+  return {
+    fyStart: `${ce - 1}-10-01`,
+    fyEnd: `${ce}-09-30`,
+  };
+}
+
 // ==================== AUTH ====================
 app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.session.user || null });
@@ -175,6 +183,7 @@ app.get('/api/master', async (req, res) => {
 app.get('/api/leaves/stats', async (req, res) => {
   try {
     const fy = Number(req.query.year_name || getFiscalYear());
+    const { fyStart, fyEnd } = getFiscalDateRange(fy);
     const uid = req.session.user ? Number(req.session.user.person_id) : null;
 
     const [[totals]] = await pool.query(
@@ -183,19 +192,19 @@ app.get('/api/leaves/stats', async (req, res) => {
               SUM(CASE WHEN allow_id = 2 THEN 1 ELSE 0 END) AS approved,
               SUM(CASE WHEN allow_id = 3 THEN 1 ELSE 0 END) AS rejected
        FROM hrd_leave_data
-       WHERE year_name = ? ${uid !== null ? 'AND person_id = ?' : ''}`,
-      uid !== null ? [fy, uid] : [fy]
+       WHERE leave_startdate BETWEEN ? AND ? ${uid !== null ? 'AND person_id = ?' : ''}`,
+      uid !== null ? [fyStart, fyEnd, uid] : [fyStart, fyEnd]
     );
     const [byType] = await pool.query(
       `SELECT lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color, COUNT(l.hrd_leave_id) AS cnt
        FROM hrd_leave_type lt
        LEFT JOIN hrd_leave_data l
          ON l.hrd_leave_type_id = lt.hrd_leave_type_id
-        AND l.year_name = ?
+        AND l.leave_startdate BETWEEN ? AND ?
         ${uid !== null ? 'AND l.person_id = ?' : ''}
        GROUP BY lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color
        ORDER BY cnt DESC`,
-      uid !== null ? [fy, uid] : [fy]
+      uid !== null ? [fyStart, fyEnd, uid] : [fyStart, fyEnd]
     );
     const [[trainStats]] = await pool.query('SELECT COUNT(*) AS total_trains FROM hrd_train_data');
     const [[personStats]] = await pool.query('SELECT COUNT(*) AS total_persons FROM hrd_person');
@@ -210,8 +219,8 @@ app.get('/api/leaves/stats', async (req, res) => {
       const [myRows] = await pool.query(
         `SELECT hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type, allow_id
          FROM hrd_leave_data
-         WHERE person_id = ? AND year_name = ? AND allow_id IN (1, 2)`,
-        [req.session.user.person_id, fy]
+         WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND allow_id IN (1, 2)`,
+        [req.session.user.person_id, fyStart, fyEnd]
       );
       let usedVacation = 0;
       let usedSick = 0;
@@ -268,8 +277,9 @@ function buildLeaveWhere(query, user) {
     params.push(exact_date);
   } else {
     if (year_name) {
-      where.push('l.year_name = ?');
-      params.push(Number(year_name));
+      const { fyStart, fyEnd } = getFiscalDateRange(year_name);
+      where.push('l.leave_startdate BETWEEN ? AND ?');
+      params.push(fyStart, fyEnd);
     }
     if (month && Number(month) > 0) {
       where.push('MONTH(l.leave_startdate) = ?');
@@ -428,11 +438,13 @@ async function getLeaveWithStats(id) {
   const leave = rows[0];
   leave.calc_days = leave.leave_day != null ? Number(leave.leave_day) : calcLeaveDays(leave.leave_startdate, leave.leave_enddate, leave.leave_day_type);
 
+  const fy = getFiscalYear(leave.leave_startdate);
+  const { fyStart, fyEnd } = getFiscalDateRange(fy);
   const [hist] = await pool.query(
     `SELECT hrd_leave_id, hrd_leave_type_id, leave_startdate, leave_enddate, leave_day, leave_day_type
      FROM hrd_leave_data
-     WHERE person_id = ? AND year_name = ? AND hrd_leave_id < ? AND allow_id IN (1, 2)`,
-    [leave.person_id, leave.year_name || getFiscalYear(leave.leave_startdate), leave.hrd_leave_id]
+     WHERE person_id = ? AND leave_startdate BETWEEN ? AND ? AND hrd_leave_id < ? AND allow_id IN (1, 2)`,
+    [leave.person_id, fyStart, fyEnd, leave.hrd_leave_id]
   );
   let prevVacation = 0;
   let prevSick = 0;
