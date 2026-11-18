@@ -189,6 +189,8 @@ function switchTab(tab) {
     document.getElementById(`tab-${tab}`).classList.remove('hidden');
     if (tab === 'create') resetLeaveForm();
     if (tab === 'trains') loadTrains(1);
+    if (tab === 'duty') loadDuties();
+    if (tab === 'portfolio') loadPortfolio();
     if (tab === 'reports') loadReports();
     if (tab === 'admin') loadAdminLeaves(1);
   }
@@ -522,6 +524,130 @@ async function deleteTrain(id) {
   if (!confirm(`ลบข้อมูลอบรม #${id}?`)) return;
   await api(`/api/trains/${id}`, { method: 'DELETE' });
   loadTrains(state.trainPage);
+}
+
+// ==================== DUTY & ACTIVITIES ====================
+function switchDutyPane(pane, btn) {
+  document.querySelectorAll('#tab-duty .seg-btn').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('dutyPane-duty').classList.toggle('hidden', pane !== 'duty');
+  document.getElementById('dutyPane-activity').classList.toggle('hidden', pane !== 'activity');
+  if (pane === 'duty') loadDuties();
+  else loadActivities();
+}
+
+async function loadDuties() {
+  const q = document.getElementById('dutyQ').value;
+  const data = await api(`/api/duties?q=${encodeURIComponent(q)}`);
+  const dSel = document.getElementById('dType');
+  if (dSel && data.dutyTypes) {
+    dSel.innerHTML = data.dutyTypes.map((t) => `<option value="${t.duty_type_id}">${esc(t.duty_type_name)}</option>`).join('');
+  }
+  document.getElementById('dutiesTbody').innerHTML = data.items.map((d) => `
+    <tr>
+      <td>#${d.duty_data_id}</td>
+      <td><strong>${esc(d.duty_name)}</strong></td>
+      <td>${esc(d.duty_type_name || '-')}</td>
+      <td>${esc(d.full_name || '-')}</td>
+      <td><small>${esc(d.department_sub_name || '-')}</small></td>
+      <td style="white-space:nowrap">${fmtThaiDate(d.duty_startdate)} - ${fmtThaiDate(d.duty_enddate)}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;">ไม่พบข้อมูลเวร</td></tr>';
+}
+
+function openDutyModal() {
+  if (!state.user) return openLoginModal();
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('dStart').value = today;
+  document.getElementById('dEnd').value = today;
+  document.getElementById('dutyModal').classList.remove('hidden');
+}
+
+async function submitDuty(e) {
+  e.preventDefault();
+  await api('/api/duties', {
+    method: 'POST',
+    body: JSON.stringify({
+      duty_name: document.getElementById('dName').value,
+      duty_type_id: document.getElementById('dType').value,
+      duty_startdate: document.getElementById('dStart').value,
+      duty_enddate: document.getElementById('dEnd').value,
+    }),
+  });
+  closeModal('dutyModal');
+  loadDuties();
+}
+
+async function loadActivities() {
+  const q = document.getElementById('actQ').value;
+  const data = await api(`/api/activities?q=${encodeURIComponent(q)}`);
+  const aSel = document.getElementById('aType');
+  if (aSel && data.activityTypes) {
+    aSel.innerHTML = data.activityTypes.map((t) => `<option value="${t.activities_type_id}">${esc(t.activities_type_name)}</option>`).join('');
+  }
+  document.getElementById('activitiesTbody').innerHTML = data.items.map((a) => `
+    <tr>
+      <td>#${a.activities_data_id}</td>
+      <td><strong>${esc(a.activities_detail || '-')}</strong></td>
+      <td>${esc(a.activities_type_name || '-')}</td>
+      <td>${esc(a.full_name || '-')}</td>
+      <td style="white-space:nowrap">${fmtThaiDate(a.activities_start_date)} - ${fmtThaiDate(a.activities_end_date)}</td>
+      <td>${a.activities_day || 1} วัน</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;">ไม่พบข้อมูลกิจกรรม</td></tr>';
+}
+
+function openActivityModal() {
+  if (!state.user) return openLoginModal();
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('aStart').value = today;
+  document.getElementById('aEnd').value = today;
+  document.getElementById('activityModal').classList.remove('hidden');
+}
+
+async function submitActivity(e) {
+  e.preventDefault();
+  await api('/api/activities', {
+    method: 'POST',
+    body: JSON.stringify({
+      activities_detail: document.getElementById('aDetail').value,
+      activities_type_id: document.getElementById('aType').value,
+      activities_start_date: document.getElementById('aStart').value,
+      activities_end_date: document.getElementById('aEnd').value,
+    }),
+  });
+  closeModal('activityModal');
+  loadActivities();
+}
+
+// ==================== PORTFOLIO ====================
+async function loadPortfolio() {
+  const q = document.getElementById('portQ').value;
+  const mine = document.getElementById('portMine').checked ? '1' : '0';
+  const data = await api(`/api/portfolio?q=${encodeURIComponent(q)}&mine=${mine}`);
+
+  const box = (title, headers, rows) => `
+    <div class="report-box">
+      <h3>${title}</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows || `<tr><td colspan="${headers.length}" style="text-align:center;color:#64748b;">ไม่มีข้อมูล</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const eduRows = data.educations.map((e) => `<tr><td>${esc(e.full_name)}</td><td>${esc(e.education_name || '-')}</td><td>${esc(e.institute_name || '-')}</td><td>${e.grade || '-'}</td></tr>`).join('');
+  const awdRows = data.awards.map((a) => `<tr><td>${esc(a.full_name)}</td><td>${esc(a.award_name || '-')}</td><td>${esc(a.award_from || '-')}</td><td>${fmtThaiDate(a.award_date)}</td></tr>`).join('');
+  const insRows = data.insignias.map((i) => `<tr><td>${esc(i.full_name)}</td><td>${esc(i.insignia_name || i.insignia_name_acronym || '-')}</td><td>${esc(i.insignia_book_number || '-')}</td><td>${fmtThaiDate(i.insignia_date_receive)}</td></tr>`).join('');
+  const nurRows = data.nursings.map((n) => `<tr><td>${esc(n.full_name)}</td><td>${esc(n.nursing_council_license_number || '-')}</td><td>${fmtThaiDate(n.nursing_council_enddate)}</td><td>${n.cneu_demand || '-'}</td></tr>`).join('');
+
+  document.getElementById('portfolioContent').innerHTML =
+    box('🎓 ประวัติการศึกษา (hrd_education_data)', ['บุคลากร', 'ระดับการศึกษา', 'สถาบัน', 'เกรด'], eduRows) +
+    box('🏆 รางวัลเชิดชูเกียรติ (hrd_award_data)', ['บุคลากร', 'ชื่อรางวัล', 'หน่วยงานที่มอบ', 'วันที่'], awdRows) +
+    box('🎖️ เครื่องราชอิสริยาภรณ์ (hrd_insignia_data)', ['บุคลากร', 'ชั้นตรา', 'เลขที่/เล่ม', 'วันที่รับ'], insRows) +
+    box('🩺 สภาการพยาบาล / CNEU (hrd_nursing_council_data)', ['บุคลากร', 'เลขใบอนุญาต', 'วันหมดอายุ', 'CNEU'], nurRows);
 }
 
 // ==================== REPORTS ====================

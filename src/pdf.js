@@ -54,11 +54,43 @@ function sendPdf(doc, filename, res, isDownload) {
   doc.end();
 }
 
+function drawFooterTimestamp(doc) {
+  doc.font('ThaiBold').fontSize(9).text(`Print Datetime  ${fmtPrintDatetime()}`, 48, 795, {
+    align: 'right',
+    width: 500,
+    lineBreak: false,
+  });
+}
+
+function drawSupervisorAndOrder(doc, supY, ordY, headName, deptName, allowId) {
+  doc.font('ThaiBold').fontSize(10.5).text('ความเห็นของผู้บังคับบัญชา', 325, supY, { width: 220, align: 'center', lineBreak: false });
+  doc.font('Thai').fontSize(10.5);
+  doc.text('......................................................................', 325, supY + 20, { width: 225, lineBreak: false });
+  doc.text('......................................................................', 325, supY + 38, { width: 225, lineBreak: false });
+  doc.text('ลงชื่อ....................................................', 325, supY + 62, { width: 225, lineBreak: false });
+  doc.text(`( ${headName} )`, 325, supY + 80, { width: 220, align: 'center', lineBreak: false });
+  doc.text(`( หัวหน้า ${deptName || 'กลุ่มงาน'} )`, 325, supY + 98, { width: 220, align: 'center', lineBreak: false });
+  doc.text('วันที่........../........................../............', 325, supY + 118, { width: 225, lineBreak: false });
+
+  doc.font('ThaiBold').fontSize(10.5).text('คำสั่ง', 325, ordY, { underline: true, lineBreak: false });
+  drawCheckbox(doc, 332, ordY + 22, allowId === 2, 10);
+  doc.font('Thai').fontSize(10.5).text('อนุญาต', 348, ordY + 19, { lineBreak: false });
+  drawCheckbox(doc, 408, ordY + 22, allowId === 3, 10);
+  doc.text('ไม่อนุญาต', 424, ordY + 19, { lineBreak: false });
+
+  doc.text('ลงชื่อ....................................................', 325, ordY + 50, { width: 225, lineBreak: false });
+  doc.text('ตำแหน่ง ( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 310, ordY + 76, { width: 245, align: 'center', lineBreak: false });
+  doc.text('วันที่........../........................../............', 325, ordY + 98, { width: 225, lineBreak: false });
+}
+
 /**
- * Generates exact original A4 Leave Form PDF matching E:\iwxe7\Report layouts
+ * Generates exact original A4 Leave Form PDF matching E:\iwxe7\Report layouts (1 single A4 page)
  */
 function generateLeavePdf(leave, stats, res, isDownload = false) {
-  const doc = new PDFDocument({ size: 'A4', margin: 48 });
+  const doc = new PDFDocument({
+    size: 'A4',
+    margins: { top: 36, bottom: 20, left: 48, right: 48 },
+  });
   doc.registerFont('Thai', FONT_REG);
   doc.registerFont('ThaiBold', FONT_BOLD);
 
@@ -79,183 +111,146 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
   const allowId = Number(leave.allow_id || 1);
 
   if (typeId === 5) {
-    // ==================== แบบใบลาพักผ่อน (Matches RepLeaveVacation.rtm / ofxFij7YgewdLOOeGFcHvW.PDF) ====================
-    doc.font('ThaiBold').fontSize(15).text('แบบใบลาพักผ่อน', 48, 42, { align: 'center', width: 500, underline: true });
+    // ==================== แบบใบลาพักผ่อน ====================
+    doc.font('ThaiBold').fontSize(14.5).text('แบบใบลาพักผ่อน', 48, 38, { align: 'center', width: 500, underline: true });
 
-    doc.font('ThaiBold').fontSize(11.5).text('เขียนที่', 300, 74, { continued: true });
+    doc.font('ThaiBold').fontSize(10.5).text('เขียนที่', 310, 68, { continued: true });
     doc.font('Thai').text('  โรงพยาบาลโคกศรีสุพรรณ  จังหวัดสกลนคร');
-    doc.text(saveDateStr, 250, 92, { align: 'right', width: 295 });
+    doc.text(saveDateStr, 250, 86, { align: 'right', width: 295 });
 
-    let y = 120;
-    doc.font('ThaiBold').fontSize(11.5).text('เรื่อง', 48, y, { continued: true });
+    let y = 114;
+    doc.font('ThaiBold').fontSize(10.5).text('เรื่อง', 48, y, { continued: true });
     doc.font('Thai').text('    ขอลาพักผ่อน');
-    y += 22;
+    y += 20;
     doc.font('ThaiBold').text('เรียน', 48, y, { continued: true });
     doc.font('Thai').text('    ผู้อำนวยการ  โรงพยาบาลโคกศรีสุพรรณ');
     y += 22;
     doc.text(`ข้าพเจ้า   ${fullName}`, 84, y, { continued: true });
     doc.font('ThaiBold').text('          ตำแหน่ง   ', { continued: true });
     doc.font('Thai').text(posName);
-    y += 22;
+    y += 20;
     doc.font('ThaiBold').text('สังกัด  ', 48, y, { continued: true });
     doc.font('Thai').text(`${deptFull}  โรงพยาบาลโคกศรีสุพรรณ`);
-    y += 26;
+    y += 24;
 
     const acc = Number(leave.leave_accumulate || 0);
     const annualRight = 10;
     const totalRight = acc + annualRight;
     doc.text(
-      `มีวันลาพักผ่อนสะสม   ${acc || '     '}   วัน       มีสิทธิ์การลาพักผ่อนประจำปี   ${annualRight}   วันทำการ       รวมเป็น   ${totalRight}   วันทำการ`,
+      `มีวันลาพักผ่อนสะสม   ${acc || '     '}   วัน     มีสิทธิ์การลาพักผ่อนประจำปี   ${annualRight}   วันทำการ     รวมเป็น   ${totalRight}   วันทำการ`,
       48,
-      y
+      y,
+      { width: 505 }
     );
+    y += 24;
+    doc.text(`ขอลาพักผ่อนตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 485 });
     y += 26;
-    doc.text(`ขอลาพักผ่อนตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 78, y);
-    y += 26;
-    doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`, 48, y);
-    y += 22;
-    doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 62, y);
+    doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`, 48, y, { width: 500 });
+    y += 20;
+    doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 64, y);
 
     // Middle Section: Left = Leave Stats Table, Right = Applicant Signature
-    const midY = 345;
-    doc.font('ThaiBold').fontSize(12).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
+    const midY = 340;
+    doc.font('ThaiBold').fontSize(11).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
 
     const tblX = 48;
-    const tblY = midY + 26;
+    const tblY = midY + 24;
     const colW = [62, 62, 62];
-    const rowH1 = 36;
-    const rowH2 = 34;
+    const rowH1 = 34;
+    const rowH2 = 32;
 
     doc.lineWidth(0.9).rect(tblX, tblY, 186, rowH1 + rowH2).stroke('#111827');
     doc.moveTo(tblX + colW[0], tblY).lineTo(tblX + colW[0], tblY + rowH1 + rowH2).stroke();
     doc.moveTo(tblX + colW[0] + colW[1], tblY).lineTo(tblX + colW[0] + colW[1], tblY + rowH1 + rowH2).stroke();
     doc.moveTo(tblX, tblY + rowH1).lineTo(tblX + 186, tblY + rowH1).stroke();
 
-    doc.font('ThaiBold').fontSize(10.5);
+    doc.font('ThaiBold').fontSize(10);
     doc.text('ลามาแล้ว\n(วันทำการ)', tblX, tblY + 5, { width: colW[0], align: 'center' });
     doc.text('ลาครั้งนี้\n(วันทำการ)', tblX + colW[0], tblY + 5, { width: colW[1], align: 'center' });
     doc.text('รวมเป็น\n(วันทำการ)', tblX + colW[0] + colW[1], tblY + 5, { width: colW[2], align: 'center' });
 
     const prevVac = Number(stats.prevVacation || 0);
     const totalVac = prevVac + days;
-    doc.font('Thai').fontSize(11);
-    doc.text(prevVac ? String(prevVac) : '0', tblX, tblY + rowH1 + 10, { width: colW[0], align: 'center' });
-    doc.text(daysText, tblX + colW[0], tblY + rowH1 + 10, { width: colW[1], align: 'center' });
-    doc.text(Number.isInteger(totalVac) ? String(totalVac) : totalVac.toFixed(1), tblX + colW[0] + colW[1], tblY + rowH1 + 10, { width: colW[2], align: 'center' });
+    doc.font('Thai').fontSize(10.5);
+    doc.text(prevVac ? String(prevVac) : '0', tblX, tblY + rowH1 + 9, { width: colW[0], align: 'center' });
+    doc.text(daysText, tblX + colW[0], tblY + rowH1 + 9, { width: colW[1], align: 'center' });
+    doc.text(Number.isInteger(totalVac) ? String(totalVac) : totalVac.toFixed(1), tblX + colW[0] + colW[1], tblY + rowH1 + 9, { width: colW[2], align: 'center' });
 
     // Right: Applicant signature
-    doc.font('Thai').fontSize(11.5).text('ขอแสดงความนับถือ', 345, midY - 6, { width: 190, align: 'center' });
-    doc.text('ลงชื่อ.........................................................', 330, midY + 34, { width: 220, align: 'center' });
-    doc.text(`( ${fullName} )`, 330, midY + 54, { width: 220, align: 'center' });
+    doc.font('Thai').fontSize(10.5).text('ขอแสดงความนับถือ', 325, midY - 6, { width: 220, align: 'center' });
+    doc.text('ลงชื่อ....................................................', 325, midY + 32, { width: 220, align: 'center' });
+    doc.text(`( ${fullName} )`, 325, midY + 50, { width: 220, align: 'center' });
 
-    // Supervisor Opinion (Right)
-    const supY = midY + 86;
-    doc.font('ThaiBold').fontSize(11.5).text('ความเห็นของผู้บังคับบัญชา', 340, supY, { width: 205, align: 'center' });
-    doc.font('Thai').text('.....................................................................................', 325, supY + 22);
-    doc.text('.....................................................................................', 325, supY + 42);
-    doc.text('ลงชื่อ.........................................................', 325, supY + 68);
-    doc.text(`( ${headName} )`, 335, supY + 88, { width: 205, align: 'center' });
-    doc.text(`( หัวหน้า ${leave.department_name || 'กลุ่มงาน'} )`, 335, supY + 106, { width: 205, align: 'center' });
-    doc.text('วันที่............/............................/.............', 325, supY + 126);
+    // Supervisor + Director Order (Right)
+    drawSupervisorAndOrder(doc, midY + 82, midY + 230, headName, leave.department_name, allowId);
 
     // Checker (Left)
-    const chkY = supY + 68;
-    doc.font('Thai').fontSize(11.5).text('ลงชื่อ...........................................ผู้ตรวจสอบ', 48, chkY);
-    doc.text(`( ${checkerName} )`, 60, chkY + 20, { width: 170, align: 'center' });
-    doc.text('ตำแหน่ง   พนักงานธุรการ', 48, chkY + 40);
-    doc.text('วันที่............/...................../.............', 48, chkY + 60);
+    const chkY = midY + 144;
+    doc.font('Thai').fontSize(10.5).text('ลงชื่อ......................................ผู้ตรวจสอบ', 48, chkY);
+    doc.text(`( ${checkerName} )`, 56, chkY + 18, { width: 170, align: 'center' });
+    doc.text('ตำแหน่ง   พนักงานธุรการ', 48, chkY + 36);
+    doc.text('วันที่........../..................../............', 48, chkY + 54);
 
     // Handover / Assigned Person (Left bottom)
-    const hndY = chkY + 88;
-    doc.font('ThaiBold').fontSize(11).text('ในระหว่างที่ข้าพเจ้าลาครั้งนี้ขอมอบงานในหน้าที่ให้', 48, hndY);
-    doc.font('Thai').text('ลงชื่อ................................................ผู้มอบ', 48, hndY + 20);
-    doc.text('วันที่............/...................../.............', 48, hndY + 40);
-    doc.text('ลงชื่อ................................................ผู้รับมอบ', 48, hndY + 62);
-    doc.text(`( ${assignedName} )`, 60, hndY + 82, { width: 170, align: 'center' });
-    doc.text('วันที่............/...................../.............', 48, hndY + 102);
+    const hndY = chkY + 82;
+    doc.font('ThaiBold').fontSize(10.5).text('ในระหว่างที่ข้าพเจ้าลาครั้งนี้ขอมอบงานในหน้าที่ให้', 48, hndY);
+    doc.font('Thai').text('ลงชื่อ...........................................ผู้มอบ', 48, hndY + 20);
+    doc.text('วันที่........../..................../............', 48, hndY + 38);
+    doc.text('ลงชื่อ...........................................ผู้รับมอบ', 48, hndY + 58);
+    doc.text(`( ${assignedName} )`, 56, hndY + 76, { width: 170, align: 'center' });
+    doc.text('วันที่........../..................../............', 48, hndY + 94);
 
-    // Director Order (Right bottom)
-    const ordY = supY + 152;
-    doc.font('ThaiBold').fontSize(11.5).text('คำสั่ง', 325, ordY, { underline: true });
-    drawCheckbox(doc, 332, ordY + 22, allowId === 2, 11);
-    doc.font('Thai').text('อนุญาต', 350, ordY + 20);
-    drawCheckbox(doc, 412, ordY + 22, allowId === 3, 11);
-    doc.text('ไม่อนุญาต', 430, ordY + 20);
-
-    doc.text('ลงชื่อ.........................................................', 325, ordY + 52);
-    doc.text('ตำแหน่ง ( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 320, ordY + 82, { width: 230, align: 'center' });
-    doc.text('วันที่............/............................/.............', 325, ordY + 104);
-
-    // Footer timestamp
-    doc.font('ThaiBold').fontSize(9.5).text(`Print Datetime  ${fmtPrintDatetime()}`, 48, 782, { align: 'right', width: 500 });
-
+    drawFooterTimestamp(doc);
     return sendPdf(doc, `leave-vacation-${leave.hrd_leave_id}.pdf`, res, isDownload);
   }
 
   if (typeId === 12) {
     // ==================== แบบใบขอยกเลิกวันลา ====================
-    doc.font('ThaiBold').fontSize(15).text('แบบใบขอยกเลิกวันลา', 48, 42, { align: 'center', width: 500, underline: true });
-    doc.font('ThaiBold').fontSize(11.5).text('เขียนที่', 300, 74, { continued: true });
+    doc.font('ThaiBold').fontSize(14.5).text('แบบใบขอยกเลิกวันลา', 48, 38, { align: 'center', width: 500, underline: true });
+    doc.font('ThaiBold').fontSize(10.5).text('เขียนที่', 310, 68, { continued: true });
     doc.font('Thai').text('  โรงพยาบาลโคกศรีสุพรรณ  จังหวัดสกลนคร');
-    doc.text(saveDateStr, 250, 92, { align: 'right', width: 295 });
+    doc.text(saveDateStr, 250, 86, { align: 'right', width: 295 });
 
-    let y = 124;
+    let y = 118;
     doc.font('ThaiBold').text('เรื่อง', 48, y, { continued: true });
     doc.font('Thai').text('    ขอยกเลิกวันลา');
-    y += 22;
+    y += 20;
     doc.font('ThaiBold').text('เรียน', 48, y, { continued: true });
     doc.font('Thai').text('    ผู้อำนวยการ  โรงพยาบาลโคกศรีสุพรรณ');
-    y += 26;
-    doc.text(`ข้าพเจ้า   ${fullName}          ตำแหน่ง   ${posName}`, 78, y);
-    y += 22;
+    y += 24;
+    doc.text(`ข้าพเจ้า   ${fullName}          ตำแหน่ง   ${posName}`, 74, y);
+    y += 20;
     doc.text(`สังกัด   ${deptFull}  โรงพยาบาลโคกศรีสุพรรณ`, 48, y);
-    y += 26;
-    doc.text(`ขอแจ้งยกเลิกวันลาตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 78, y);
+    y += 24;
+    doc.text(`ขอแจ้งยกเลิกวันลาตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 485 });
     y += 24;
     doc.text(`เนื่องจาก   ${(leave.leave_because_cancel || leave.leave_because || '-').trim()}`, 48, y, { width: 495 });
 
     const sigY = 330;
-    doc.text('ขอแสดงความนับถือ', 345, sigY, { width: 190, align: 'center' });
-    doc.text('ลงชื่อ.........................................................', 330, sigY + 40, { width: 220, align: 'center' });
-    doc.text(`( ${fullName} )`, 330, sigY + 60, { width: 220, align: 'center' });
+    doc.text('ขอแสดงความนับถือ', 325, sigY, { width: 220, align: 'center' });
+    doc.text('ลงชื่อ....................................................', 325, sigY + 36, { width: 220, align: 'center' });
+    doc.text(`( ${fullName} )`, 325, sigY + 54, { width: 220, align: 'center' });
 
-    const supY = sigY + 100;
-    doc.font('ThaiBold').text('ความเห็นของผู้บังคับบัญชา', 340, supY, { width: 205, align: 'center' });
-    doc.font('Thai').text('.....................................................................................', 325, supY + 24);
-    doc.text('ลงชื่อ.........................................................', 325, supY + 62);
-    doc.text(`( ${headName} )`, 335, supY + 82, { width: 205, align: 'center' });
-    doc.text(`( หัวหน้า ${leave.department_name || 'กลุ่มงาน'} )`, 335, supY + 100, { width: 205, align: 'center' });
-    doc.text('วันที่............/............................/.............', 325, supY + 120);
-
-    const ordY = supY + 156;
-    doc.font('ThaiBold').text('คำสั่ง', 325, ordY, { underline: true });
-    drawCheckbox(doc, 332, ordY + 22, allowId === 2 || allowId === 9, 11);
-    doc.font('Thai').text('อนุญาต', 350, ordY + 20);
-    drawCheckbox(doc, 412, ordY + 22, allowId === 3, 11);
-    doc.text('ไม่อนุญาต', 430, ordY + 20);
-    doc.text('ลงชื่อ.........................................................', 325, ordY + 54);
-    doc.text('ตำแหน่ง ( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 320, ordY + 80, { width: 230, align: 'center' });
-    doc.text('วันที่............/............................/.............', 325, ordY + 102);
-
-    doc.font('ThaiBold').fontSize(9.5).text(`Print Datetime  ${fmtPrintDatetime()}`, 48, 782, { align: 'right', width: 500 });
+    drawSupervisorAndOrder(doc, sigY + 86, sigY + 234, headName, leave.department_name, allowId === 9 ? 2 : allowId);
+    drawFooterTimestamp(doc);
     return sendPdf(doc, `leave-cancel-${leave.hrd_leave_id}.pdf`, res, isDownload);
   }
 
   // ==================== แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว ====================
   const typeTitle = leave.hrd_leave_type_name || 'ลาป่วย / ลากิจส่วนตัว / ลาคลอดบุตร';
-  doc.font('ThaiBold').fontSize(15).text('แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว', 48, 42, { align: 'center', width: 500, underline: true });
+  doc.font('ThaiBold').fontSize(14.5).text('แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว', 48, 38, { align: 'center', width: 500, underline: true });
 
-  doc.font('ThaiBold').fontSize(11.5).text('เขียนที่', 300, 74, { continued: true });
+  doc.font('ThaiBold').fontSize(10.5).text('เขียนที่', 310, 68, { continued: true });
   doc.font('Thai').text('  โรงพยาบาลโคกศรีสุพรรณ  จังหวัดสกลนคร');
-  doc.text(saveDateStr, 250, 92, { align: 'right', width: 295 });
+  doc.text(saveDateStr, 250, 86, { align: 'right', width: 295 });
 
-  let y = 118;
-  doc.font('ThaiBold').fontSize(11.5).text('เรื่อง', 48, y, { continued: true });
+  let y = 114;
+  doc.font('ThaiBold').fontSize(10.5).text('เรื่อง', 48, y, { continued: true });
   doc.font('Thai').text(`    ขอ${typeTitle}`);
   y += 20;
   doc.font('ThaiBold').text('เรียน', 48, y, { continued: true });
   doc.font('Thai').text('    ผู้อำนวยการ  โรงพยาบาลโคกศรีสุพรรณ');
-  y += 22;
+  y += 20;
   doc.text(`ข้าพเจ้า   ${fullName}`, 84, y, { continued: true });
   doc.font('ThaiBold').text('          ตำแหน่ง   ', { continued: true });
   doc.font('Thai').text(posName);
@@ -264,34 +259,33 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
   doc.font('Thai').text(`${deptFull}  โรงพยาบาลโคกศรีสุพรรณ`);
   y += 24;
 
-  // Checkboxes for leave type
-  doc.text('ขอลา', 78, y);
-  drawCheckbox(doc, 118, y + 3, typeId === 1, 10);
-  doc.text('ป่วย', 134, y);
-  drawCheckbox(doc, 178, y + 3, typeId === 4, 10);
-  doc.text('กิจส่วนตัว', 194, y);
-  drawCheckbox(doc, 268, y + 3, typeId === 2, 10);
-  doc.text('คลอดบุตร', 284, y);
+  doc.text('ขอลา', 74, y);
+  drawCheckbox(doc, 114, y + 3, typeId === 1, 10);
+  doc.text('ป่วย', 130, y);
+  drawCheckbox(doc, 174, y + 3, typeId === 4, 10);
+  doc.text('กิจส่วนตัว', 190, y);
+  drawCheckbox(doc, 264, y + 3, typeId === 2, 10);
+  doc.text('คลอดบุตร', 280, y);
   const isOther = ![1, 2, 4].includes(typeId);
-  drawCheckbox(doc, 355, y + 3, isOther, 10);
-  doc.text(isOther ? `อื่นๆ (${typeTitle})` : 'อื่นๆ', 371, y);
+  drawCheckbox(doc, 350, y + 3, isOther, 10);
+  doc.text(isOther ? `อื่นๆ (${typeTitle})` : 'อื่นๆ', 366, y);
 
   y += 22;
   doc.text(`เนื่องจาก   ${(leave.leave_because || '-').trim()}`, 48, y, { width: 495 });
-  y += 28;
-  doc.text(`ตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 48, y);
+  y += 26;
+  doc.text(`ตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 48, y, { width: 505 });
   y += 22;
-  doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`, 48, y);
+  doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`, 48, y, { width: 500 });
   y += 20;
-  doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 62, y);
+  doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 64, y);
 
   // Stats table (4 columns x 4 rows)
-  const midY = 345;
-  doc.font('ThaiBold').fontSize(12).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
+  const midY = 340;
+  doc.font('ThaiBold').fontSize(11).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
   const tblX = 48;
-  const tblY = midY + 24;
+  const tblY = midY + 22;
   const widths = [74, 48, 48, 48];
-  const rowH = 26;
+  const rowH = 25;
   const totalW = widths.reduce((a, b) => a + b, 0);
 
   doc.lineWidth(0.9).rect(tblX, tblY, totalW, rowH * 4).stroke('#111827');
@@ -306,7 +300,7 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
 
   const headers = ['ประเภทลา', 'ลามาแล้ว', 'ลาครั้งนี้', 'รวมเป็น'];
   cx = tblX;
-  doc.font('ThaiBold').fontSize(10);
+  doc.font('ThaiBold').fontSize(9.5);
   headers.forEach((h, i) => {
     doc.text(h, cx, tblY + 7, { width: widths[i], align: 'center' });
     cx += widths[i];
@@ -317,49 +311,27 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
     ['กิจส่วนตัว', stats.prevBusiness || 0, typeId === 4 ? daysText : '-', typeId === 4 ? (Number(stats.prevBusiness || 0) + days) : (stats.prevBusiness || 0)],
     ['คลอดบุตร', stats.prevMaternity || 0, typeId === 2 ? daysText : '-', typeId === 2 ? (Number(stats.prevMaternity || 0) + days) : (stats.prevMaternity || 0)],
   ];
-  doc.font('Thai').fontSize(10.5);
+  doc.font('Thai').fontSize(10);
   statRows.forEach((sr, rIdx) => {
     cx = tblX;
     sr.forEach((val, cIdx) => {
-      doc.text(String(val), cx, tblY + rowH * (rIdx + 1) + 6, { width: widths[cIdx], align: cIdx === 0 ? 'left' : 'center' });
+      doc.text(String(val), cx + (cIdx === 0 ? 4 : 0), tblY + rowH * (rIdx + 1) + 6, { width: widths[cIdx] - (cIdx === 0 ? 4 : 0), align: cIdx === 0 ? 'left' : 'center' });
       cx += widths[cIdx];
     });
   });
 
-  // Right: Applicant signature
-  doc.font('Thai').fontSize(11.5).text('ขอแสดงความนับถือ', 345, midY - 6, { width: 190, align: 'center' });
-  doc.text('ลงชื่อ.........................................................', 330, midY + 34, { width: 220, align: 'center' });
-  doc.text(`( ${fullName} )`, 330, midY + 54, { width: 220, align: 'center' });
+  doc.font('Thai').fontSize(10.5).text('ขอแสดงความนับถือ', 325, midY - 6, { width: 220, align: 'center' });
+  doc.text('ลงชื่อ....................................................', 325, midY + 32, { width: 220, align: 'center' });
+  doc.text(`( ${fullName} )`, 325, midY + 50, { width: 220, align: 'center' });
 
-  // Checker (Left)
-  const chkY = tblY + rowH * 4 + 28;
-  doc.text('ลงชื่อ...........................................ผู้ตรวจสอบ', 48, chkY);
-  doc.text(`( ${checkerName} )`, 60, chkY + 20, { width: 170, align: 'center' });
-  doc.text('ตำแหน่ง   พนักงานธุรการ', 48, chkY + 40);
-  doc.text('วันที่............/...................../.............', 48, chkY + 60);
+  const chkY = tblY + rowH * 4 + 26;
+  doc.text('ลงชื่อ......................................ผู้ตรวจสอบ', 48, chkY);
+  doc.text(`( ${checkerName} )`, 56, chkY + 18, { width: 170, align: 'center' });
+  doc.text('ตำแหน่ง   พนักงานธุรการ', 48, chkY + 36);
+  doc.text('วันที่........../..................../............', 48, chkY + 54);
 
-  // Supervisor Opinion (Right)
-  const supY = midY + 86;
-  doc.font('ThaiBold').text('ความเห็นของผู้บังคับบัญชา', 340, supY, { width: 205, align: 'center' });
-  doc.font('Thai').text('.....................................................................................', 325, supY + 22);
-  doc.text('.....................................................................................', 325, supY + 42);
-  doc.text('ลงชื่อ.........................................................', 325, supY + 68);
-  doc.text(`( ${headName} )`, 335, supY + 88, { width: 205, align: 'center' });
-  doc.text(`( หัวหน้า ${leave.department_name || 'กลุ่มงาน'} )`, 335, supY + 106, { width: 205, align: 'center' });
-  doc.text('วันที่............/............................/.............', 325, supY + 126);
-
-  // Director Order (Right bottom)
-  const ordY = supY + 156;
-  doc.font('ThaiBold').text('คำสั่ง', 325, ordY, { underline: true });
-  drawCheckbox(doc, 332, ordY + 22, allowId === 2, 11);
-  doc.font('Thai').text('อนุญาต', 350, ordY + 20);
-  drawCheckbox(doc, 412, ordY + 22, allowId === 3, 11);
-  doc.text('ไม่อนุญาต', 430, ordY + 20);
-  doc.text('ลงชื่อ.........................................................', 325, ordY + 54);
-  doc.text('ตำแหน่ง ( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 320, ordY + 82, { width: 230, align: 'center' });
-  doc.text('วันที่............/............................/.............', 325, ordY + 104);
-
-  doc.font('ThaiBold').fontSize(9.5).text(`Print Datetime  ${fmtPrintDatetime()}`, 48, 782, { align: 'right', width: 500 });
+  drawSupervisorAndOrder(doc, midY + 82, midY + 230, headName, leave.department_name, allowId);
+  drawFooterTimestamp(doc);
   return sendPdf(doc, `leave-${leave.hrd_leave_id}.pdf`, res, isDownload);
 }
 
@@ -367,16 +339,16 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
  * Generates Training / Conference Report PDF (A4)
  */
 function generateTrainPdf(train, res, isDownload = false) {
-  const doc = new PDFDocument({ size: 'A4', margin: 48 });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 40, bottom: 20, left: 48, right: 48 } });
   doc.registerFont('Thai', FONT_REG);
   doc.registerFont('ThaiBold', FONT_BOLD);
 
-  doc.font('ThaiBold').fontSize(16).text('แบบรายงานการฝึกอบรม / ประชุมวิชาการ / ไปราชการ', 48, 42, { align: 'center', width: 500, underline: true });
-  doc.font('Thai').fontSize(12).text('โรงพยาบาลโคกศรีสุพรรณ จังหวัดสกลนคร', 48, 66, { align: 'center', width: 500 });
+  doc.font('ThaiBold').fontSize(15).text('แบบรายงานการฝึกอบรม / ประชุมวิชาการ / ไปราชการ', 48, 42, { align: 'center', width: 500, underline: true });
+  doc.font('Thai').fontSize(11.5).text('โรงพยาบาลโคกศรีสุพรรณ จังหวัดสกลนคร', 48, 66, { align: 'center', width: 500 });
 
   let y = 104;
   const row = (label, val) => {
-    doc.font('ThaiBold').fontSize(11.5).text(label, 48, y, { width: 150 });
+    doc.font('ThaiBold').fontSize(11).text(label, 48, y, { width: 150 });
     doc.font('Thai').text(String(val || '-'), 200, y, { width: 345 });
     y += Math.max(22, doc.heightOfString(String(val || '-'), { width: 345 }) + 8);
   };
@@ -394,7 +366,7 @@ function generateTrainPdf(train, res, isDownload = false) {
   row('เลขที่คำสั่ง:', train.train_order);
 
   y += 10;
-  doc.font('ThaiBold').fontSize(12).text('รายละเอียดค่าใช้จ่าย (บาท)', 48, y);
+  doc.font('ThaiBold').fontSize(11.5).text('รายละเอียดค่าใช้จ่าย (บาท)', 48, y);
   y += 22;
   const costs = [
     ['ค่าลงทะเบียน', Number(train.train_pay_register || 0)],
@@ -413,10 +385,10 @@ function generateTrainPdf(train, res, isDownload = false) {
   doc.font('ThaiBold').text('รวมเป็นเงินทั้งสิ้น', 64, y + 4, { width: 220 });
   doc.text(`${totalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`, 300, y + 4, { width: 120, align: 'right' });
 
-  doc.font('Thai').fontSize(11.5).text('ลงชื่อ.........................................................ผู้รายงาน', 300, 620, { width: 240, align: 'center' });
-  doc.text('ลงชื่อ.........................................................', 300, 690, { width: 240, align: 'center' });
+  doc.font('Thai').fontSize(11).text('ลงชื่อ....................................................ผู้รายงาน', 300, 620, { width: 240, align: 'center' });
+  doc.text('ลงชื่อ....................................................', 300, 690, { width: 240, align: 'center' });
   doc.text('( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 300, 710, { width: 240, align: 'center' });
-  doc.font('ThaiBold').fontSize(9.5).text(`Print Datetime  ${fmtPrintDatetime()}`, 48, 782, { align: 'right', width: 500 });
+  drawFooterTimestamp(doc);
 
   return sendPdf(doc, `train-${train.train_data_id}.pdf`, res, isDownload);
 }
@@ -476,7 +448,7 @@ function generateReportPdf(title, subtitle, cols, rows, res, isDownload = false)
   } else {
     y += 30;
   }
-  doc.font('Thai').fontSize(11).text('ลงชื่อ.........................................................', 310, y, { width: 240, align: 'center' });
+  doc.font('Thai').fontSize(11).text('ลงชื่อ....................................................', 310, y, { width: 240, align: 'center' });
   doc.text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', 310, y + 20, { width: 240, align: 'center' });
   doc.font('ThaiBold').text('นายแพทย์ชำนาญการพิเศษ', 310, y + 38, { width: 240, align: 'center' });
   doc.font('Thai').text('รักษาการในตำแหน่ง ผู้อำนวยการ รพ.โคกศรีสุพรรณ', 310, y + 54, { width: 240, align: 'center' });
