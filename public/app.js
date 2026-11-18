@@ -394,7 +394,44 @@ async function openLeaveDetail(id) {
   document.getElementById('leaveDetailModal').classList.remove('hidden');
 }
 
-// ==================== CREATE / EDIT LEAVE ====================
+// ==================== CREATE / EDIT LEAVE MODAL ====================
+function populateAssignedSelect(deptId, excludePersonId, selectedVal = '') {
+  const el = document.getElementById('fAssignedId');
+  if (!el || !state.master?.persons) return;
+  let list = state.master.persons;
+  if (deptId) {
+    const sameDept = list.filter((p) => Number(p.department_id) === Number(deptId));
+    if (sameDept.length) list = sameDept;
+  }
+  if (excludePersonId != null) {
+    list = list.filter((p) => Number(p.person_id) !== Number(excludePersonId));
+  }
+  el.innerHTML = '<option value="">-- ไม่ระบุ --</option>' +
+    list.map((p) => `<option value="${p.person_id}">${esc(p.full_name)}</option>`).join('');
+  if (selectedVal) el.value = String(selectedVal);
+}
+
+function onLeavePersonChange() {
+  const pid = document.getElementById('fPersonId').value;
+  if (pid && state.master?.persons) {
+    const person = state.master.persons.find((p) => Number(p.person_id) === Number(pid));
+    if (person) {
+      populateAssignedSelect(person.department_id, person.person_id);
+      return;
+    }
+  }
+  populateAssignedSelect(state.user?.department_id, state.user?.person_id);
+}
+
+function openLeaveFormModal(typeId = 1) {
+  if (!state.user) return openLoginModal();
+  resetLeaveForm();
+  document.getElementById('fTypeId').value = String(typeId);
+  onLeaveTypeChange();
+  populateAssignedSelect(state.user.department_id, state.user.person_id);
+  document.getElementById('leaveFormModal').classList.remove('hidden');
+}
+
 function resetLeaveForm() {
   document.getElementById('fLeaveId').value = '';
   document.getElementById('formLeaveTitle').textContent = 'แบบฟอร์มยื่นใบลาออนไลน์';
@@ -406,6 +443,8 @@ function resetLeaveForm() {
   document.getElementById('fBecauseCancel').value = '';
   document.getElementById('fContactAddr').value = '';
   document.getElementById('fContactTel').value = state.user?.phone_number || '';
+  if (document.getElementById('fPersonId')) document.getElementById('fPersonId').value = '';
+  populateAssignedSelect(state.user?.department_id, state.user?.person_id);
   onLeaveTypeChange();
   recalcDays();
 }
@@ -440,7 +479,6 @@ function recalcDays() {
 
 async function editLeave(id) {
   const { leave: r } = await api(`/api/leaves/${id}`);
-  switchTab('create');
   document.getElementById('fLeaveId').value = r.hrd_leave_id;
   document.getElementById('formLeaveTitle').textContent = `แก้ไขใบลา #${r.hrd_leave_id}`;
   document.getElementById('fTypeId').value = r.hrd_leave_type_id;
@@ -451,10 +489,11 @@ async function editLeave(id) {
   document.getElementById('fYearName').value = r.year_name || state.fiscalYear;
   document.getElementById('fBecause').value = r.leave_because || '';
   document.getElementById('fBecauseCancel').value = r.leave_because_cancel || '';
-  document.getElementById('fAssignedId').value = r.leave_assigned_person_id || '';
+  populateAssignedSelect(r.department_id || state.user?.department_id, r.person_id, r.leave_assigned_person_id || '');
   document.getElementById('fContactTel').value = r.leave_contact_tel || '';
   document.getElementById('fContactAddr').value = r.leave_contact || '';
   onLeaveTypeChange();
+  document.getElementById('leaveFormModal').classList.remove('hidden');
 }
 
 async function submitLeave(e) {
@@ -478,9 +517,9 @@ async function submitLeave(e) {
   try {
     if (id) await api(`/api/leaves/${id}`, { method: 'PUT', body: JSON.stringify(body) });
     else await api('/api/leaves', { method: 'POST', body: JSON.stringify(body) });
+    closeModal('leaveFormModal');
     await loadDashboardStats();
-    switchTab('leaves');
-    setViewMode('table');
+    applyFilters();
   } catch (err) {
     alert(err.message);
   }
@@ -579,11 +618,7 @@ const HRD_SECTION_TITLES = {
 };
 
 function openLeaveFormType(leaveTypeId, btn) {
-  switchTab('create');
-  document.querySelectorAll('.nav-pill').forEach((b) => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.getElementById('fTypeId').value = String(leaveTypeId);
-  onLeaveTypeChange();
+  openLeaveFormModal(leaveTypeId);
 }
 
 function openHrdSection(sec, btn) {
