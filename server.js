@@ -257,9 +257,11 @@ app.get('/api/master', async (req, res) => {
       pool.query('SELECT train_budget_id, train_budget_name FROM hrd_train_budget ORDER BY train_budget_id'),
       pool.query(
         `SELECT p.person_id, CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
-                p.department_id, p.department_sub_id, p.position_id
+                p.department_id, p.department_sub_id, p.position_id,
+                COALESCE(pos.position_name, '') AS position_name
          FROM hrd_person p
          LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+         LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
          WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''
          ORDER BY p.fname, p.lname`
       ),
@@ -829,10 +831,63 @@ app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hrd_train_memo (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        train_data_id INT NOT NULL UNIQUE,
+        memo_date DATE NULL,
+        request_dept VARCHAR(255) DEFAULT '',
+        companions_json TEXT NULL,
+        org_budget_text VARCHAR(255) DEFAULT '',
+        hospital_budget DECIMAL(10,2) DEFAULT 0,
+        director_name VARCHAR(255) DEFAULT 'นางณัฐปภัสร์ นวัตชัยศิริกุล',
+        director_pos1 VARCHAR(255) DEFAULT 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง',
+        director_pos2 VARCHAR(255) DEFAULT 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   } catch (err) {
     console.warn('ensureTrainSchema skipped:', err.message);
   }
 })();
+
+async function saveTrainMemo(trainDataId, b) {
+  const list = Array.isArray(b.companions)
+    ? b.companions
+        .slice(0, 6)
+        .map((c) => ({ name: String(c?.name || '').trim(), position: String(c?.position || '').trim() }))
+        .filter((c) => c.name || c.position)
+    : [];
+  const dirName = String(b.director_name || '').trim() || 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
+  const dirPos1 = String(b.director_pos1 || '').trim() || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
+  const dirPos2 = String(b.director_pos2 || '').trim() || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ';
+  await pool.query(
+    `INSERT INTO hrd_train_memo (
+      train_data_id, memo_date, request_dept, companions_json, org_budget_text, hospital_budget,
+      director_name, director_pos1, director_pos2
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      memo_date = VALUES(memo_date),
+      request_dept = VALUES(request_dept),
+      companions_json = VALUES(companions_json),
+      org_budget_text = VALUES(org_budget_text),
+      hospital_budget = VALUES(hospital_budget),
+      director_name = VALUES(director_name),
+      director_pos1 = VALUES(director_pos1),
+      director_pos2 = VALUES(director_pos2)`,
+    [
+      trainDataId,
+      b.memo_date ? String(b.memo_date).slice(0, 10) : null,
+      String(b.request_dept || '').trim(),
+      JSON.stringify(list),
+      String(b.org_budget_text || '').trim(),
+      Number(b.hospital_budget || 0),
+      dirName,
+      dirPos1,
+      dirPos2,
+    ]
+  );
+}
 
 async function saveTrainImage(trainDataId, trainImage, fileName = '') {
   if (trainImage === '__REMOVE__') {
@@ -904,13 +959,23 @@ app.get('/api/trains/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
-              ti.image_data AS train_image, ti.file_name AS train_image_name
+              ti.image_data AS train_image, ti.file_name AS train_image_name,
+              m.memo_date, m.request_dept, m.companions_json, m.org_budget_text, m.hospital_budget,
+              m.director_name, m.director_pos1, m.director_pos2,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS requester_name,
+              COALESCE(pos.position_name, '') AS requester_position,
+              COALESCE(d.department_name, '') AS requester_dept
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
        LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
        LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
        LEFT JOIN hrd_train_images ti ON ti.train_data_id = t.train_data_id
+       LEFT JOIN hrd_train_memo m ON m.train_data_id = t.train_data_id
+       LEFT JOIN hrd_person p ON p.person_id = t.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
        WHERE t.train_data_id = ? LIMIT 1`,
       [Number(req.params.id)]
     );
@@ -940,12 +1005,22 @@ app.get('/api/trains/:id/image', async (req, res) => {
 app.get('/api/trains/:id/pdf', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
+              m.memo_date, m.request_dept, m.companions_json, m.org_budget_text, m.hospital_budget,
+              m.director_name, m.director_pos1, m.director_pos2,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS requester_name,
+              COALESCE(pos.position_name, '') AS requester_position,
+              COALESCE(d.department_name, '') AS requester_dept
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
        LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
        LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       LEFT JOIN hrd_train_memo m ON m.train_data_id = t.train_data_id
+       LEFT JOIN hrd_person p ON p.person_id = t.person_id
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
        WHERE t.train_data_id = ? LIMIT 1`,
       [Number(req.params.id)]
     );
@@ -991,6 +1066,7 @@ app.post('/api/trains', requireAuth, async (req, res) => {
       ]
     );
     await saveTrainImage(result.insertId, b.train_image, b.train_image_name);
+    await saveTrainMemo(result.insertId, b);
     res.json({ ok: true, id: result.insertId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1035,6 +1111,7 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
       ]
     );
     await saveTrainImage(id, b.train_image, b.train_image_name);
+    await saveTrainMemo(id, b);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1045,6 +1122,7 @@ app.delete('/api/trains/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     await pool.query('DELETE FROM hrd_train_images WHERE train_data_id = ?', [id]);
+    await pool.query('DELETE FROM hrd_train_memo WHERE train_data_id = ?', [id]);
     await pool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [id]);
     res.json({ ok: true });
   } catch (err) {

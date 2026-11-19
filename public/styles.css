@@ -828,6 +828,60 @@ th { background: #f8fafc; font-weight: 600; color: #475569; white-space: nowrap;
   display: block;
   object-fit: contain;
 }
+.memo-section-box {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.memo-section-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f766e;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.memo-inner-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.companions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.companion-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.companion-num {
+  font-weight: 700;
+  color: #475569;
+  font-size: 13px;
+  text-align: center;
+}
+.director-details {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: #475569;
+}
+.director-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #0f766e;
+  margin-bottom: 8px;
+}
+@media (max-width: 720px) {
+  .memo-inner-grid { grid-template-columns: 1fr; }
+  .companion-row { grid-template-columns: 24px 1fr; }
+}
 
 @media (max-width: 1040px) {
   .app-shell { grid-template-columns: 1fr; }

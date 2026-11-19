@@ -1,13 +1,29 @@
 const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 
 const FONT_REG = path.join(__dirname, '..', 'fonts', 'THSarabun.ttf');
 const FONT_BOLD = path.join(__dirname, '..', 'fonts', 'THSarabun-Bold.ttf');
+const GARUDA_PATH = path.join(__dirname, '..', 'public', 'garuda.png');
 
 const THAI_MONTHS_FULL = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ];
+
+function fmtThaiDatePlain(iso) {
+  if (!iso || String(iso).startsWith('0000')) return '';
+  const s = String(iso).slice(0, 10);
+  const p = s.split('-');
+  if (p.length !== 3) return s;
+  return `${Number(p[2])} ${THAI_MONTHS_FULL[Number(p[1]) - 1] || p[1]} ${Number(p[0]) + 543}`;
+}
+
+function drawDottedLine(doc, x1, x2, y) {
+  doc.save();
+  doc.lineWidth(0.55).dash(1.1, { space: 1.8 }).moveTo(x1, y).lineTo(x2, y).stroke('#333333');
+  doc.undash().restore();
+}
 
 function fmtThaiFullDate(iso) {
   if (!iso || String(iso).startsWith('0000')) return '......../..................../..........';
@@ -366,63 +382,190 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
 }
 
 /**
- * Generates Training / Conference Report PDF (A4)
+ * Generates Official Memo PDF (บันทึกข้อความ ขออนุมัติไปราชการ, A4 TH Sarabun PSK)
  */
 function generateTrainPdf(train, res, isDownload = false) {
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 40, bottom: 20, left: 48, right: 48 } });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 28, bottom: 20, left: 48, right: 48 } });
   doc.registerFont('Thai', FONT_REG);
   doc.registerFont('ThaiBold', FONT_BOLD);
 
-  doc.font('ThaiBold').fontSize(18).text('แบบรายงานการฝึกอบรม / ประชุมวิชาการ / ไปราชการ', 48, 40, { align: 'center', width: 500, underline: true });
-  doc.font('Thai').fontSize(15).text('โรงพยาบาลโคกศรีสุพรรณ จังหวัดสกลนคร', 48, 66, { align: 'center', width: 500 });
+  const L = 56;
+  const R = 540;
 
-  let y = 104;
-  const row = (label, val) => {
-    doc.font('ThaiBold').fontSize(15).text(label, 48, y, { width: 150 });
-    doc.font('Thai').text(String(val || '-'), 200, y, { width: 345 });
-    y += Math.max(22, doc.heightOfString(String(val || '-'), { width: 345 }) + 8);
-  };
+  if (fs.existsSync(GARUDA_PATH)) {
+    doc.image(GARUDA_PATH, L, 34, { width: 44 });
+  }
+  doc.font('ThaiBold').fontSize(24).text('บันทึกข้อความ', 48, 52, { align: 'center', width: 500 });
 
-  row('รหัสอ้างอิง:', `#${train.train_data_id}`);
-  row('หัวข้อ / หลักสูตร:', train.train_topic);
-  row('หน่วยงานที่จัด:', train.train_org);
-  row('สถานที่:', train.train_place);
-  row('วันที่ดำเนินการ:', `${fmtThaiFullDate(train.train_startdate)} ถึง ${fmtThaiFullDate(train.train_enddate)}`);
-  row('จำนวนวัน:', `${train.train_sum_day || '-'} วัน`);
-  row('ประเภทการอบรม:', train.train_type_name);
-  row('ด้าน / ความเกี่ยวข้อง:', train.train_about_name);
-  row('พื้นที่:', train.train_area_name);
-  row('แหล่งงบประมาณ:', train.train_budget_name);
-  row('เลขที่หนังสือ:', train.train_order);
-  row('การเดินทาง:', train.train_travel);
-  row('ระยะทางไป-กลับ:', train.train_distance_km ? `${Number(train.train_distance_km).toLocaleString()} กิโลเมตร` : '-');
+  let y = 92;
+  doc.font('ThaiBold').fontSize(16).text('ส่วนราชการ', L, y);
+  doc.font('Thai').fontSize(15).text('โรงพยาบาลโคกศรีสุพรรณ  อำเภอโคกศรีสุพรรณ  จังหวัดสกลนคร', L + 68, y + 1);
+  drawDottedLine(doc, L + 64, R, y + 17);
 
-  y += 10;
-  doc.font('ThaiBold').fontSize(15.5).text('รายละเอียดค่าใช้จ่าย (บาท)', 48, y);
-  y += 24;
-  const costs = [
-    ['ค่าลงทะเบียน', Number(train.train_pay_register || 0)],
-    ['ค่าที่พัก', Number(train.train_pay_apartment || 0)],
-    ['ค่าเบี้ยเลี้ยง', Number(train.train_pay_allowance || 0)],
-    ['ค่าพาหนะ/เดินทาง', Number(train.train_pay_travel || 0)],
-    ['ค่าใช้จ่ายอื่นๆ', Number(train.train_pay_other || 0)],
-  ];
-  const totalCost = costs.reduce((s, c) => s + c[1], 0);
-  doc.font('Thai').fontSize(15);
-  costs.forEach(([k, v]) => {
-    doc.text(k, 64, y, { width: 220 });
-    doc.text(v.toLocaleString('th-TH', { minimumFractionDigits: 2 }), 300, y, { width: 120, align: 'right' });
+  y = 114;
+  doc.font('ThaiBold').fontSize(16).text('ที่', L, y);
+  const rawOrder = String(train.train_order || '').trim();
+  const docOrder = rawOrder
+    ? (rawOrder.includes('สน') ? rawOrder : `สน ๐๐๓๓.๓๐๑/${rawOrder}`)
+    : 'สน ๐๐๓๓.๓๐๑/';
+  doc.font('Thai').fontSize(15).text(docOrder, L + 20, y + 1, { width: 204, lineBreak: false });
+  drawDottedLine(doc, L + 16, 282, y + 17);
+
+  doc.font('ThaiBold').fontSize(16).text('วันที่', 286, y);
+  const memoDateStr = fmtThaiDatePlain(train.memo_date || train.train_order_startdate || train.train_startdate);
+  if (memoDateStr) {
+    doc.font('Thai').fontSize(15).text(memoDateStr, 322, y + 1, { width: 215, align: 'center', lineBreak: false });
+  }
+  drawDottedLine(doc, 316, R, y + 17);
+
+  y = 136;
+  doc.font('ThaiBold').fontSize(16).text('เรื่อง', L, y);
+  doc.font('Thai').fontSize(15).text('ขออนุมัติไปราชการ', L + 36, y + 1);
+  drawDottedLine(doc, L + 32, R, y + 17);
+
+  y = 160;
+  doc.font('ThaiBold').fontSize(16).text('เรียน', L, y);
+  doc.font('Thai').fontSize(15).text('ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ', L + 36, y + 1);
+
+  y = 188;
+  const reqDept = String(train.request_dept || train.requester_dept || '').trim();
+  doc.font('Thai').fontSize(15).text('ด้วย', L + 60, y);
+  drawDottedLine(doc, L + 86, 336, y + 16);
+  if (reqDept) {
+    doc.text(reqDept, L + 90, y, { width: 190, align: 'center', lineBreak: false });
+  }
+  doc.text('โรงพยาบาลโคกศรีสุพรรณ  มีความประสงค์', 340, y, { width: 205, lineBreak: false });
+
+  y = 210;
+  doc.text('จะขออนุมัติไปราชการเกี่ยวกับ', L, y);
+  const topicText = String(train.train_topic || '').trim();
+  const topicW = R - 208;
+  doc.text(topicText, 208, y, { width: topicW });
+  drawDottedLine(doc, 204, R, y + 16);
+  const topicH = doc.heightOfString(topicText || ' ', { width: topicW });
+  if (topicH > 22) {
+    drawDottedLine(doc, L, R, y + 36);
+    y += 42;
+  } else {
     y += 22;
-  });
-  doc.font('ThaiBold').text('รวมเป็นเงินทั้งสิ้น', 64, y + 4, { width: 220 });
-  doc.text(`${totalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`, 300, y + 4, { width: 120, align: 'right' });
+  }
 
-  doc.font('Thai').fontSize(15).text('ลงชื่อ....................................................ผู้รายงาน', 300, 620, { width: 240, align: 'center' });
-  doc.text('ลงชื่อ....................................................', 300, 690, { width: 240, align: 'center' });
-  doc.text('( ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ )', 300, 712, { width: 240, align: 'center' });
+  doc.text('ที่', L, y);
+  const placeText = [train.train_place, train.train_org].filter(Boolean).join('  ').trim();
+  doc.text(placeText, L + 20, y, { width: R - (L + 20) });
+  drawDottedLine(doc, L + 16, R, y + 16);
+  const placeH = doc.heightOfString(placeText || ' ', { width: R - (L + 20) });
+  y += placeH > 22 ? 38 : 22;
+
+  const startPlain = fmtThaiDatePlain(train.train_startdate);
+  const endPlain = fmtThaiDatePlain(train.train_enddate);
+  doc.text('ระหว่างวันที่', L, y);
+  drawDottedLine(doc, 124, 304, y + 16);
+  if (startPlain) doc.text(startPlain, 128, y, { width: 172, align: 'center', lineBreak: false });
+  doc.text('ถึงวันที่', 310, y);
+  drawDottedLine(doc, 352, R, y + 16);
+  if (endPlain) doc.text(endPlain, 356, y, { width: 180, align: 'center', lineBreak: false });
+
+  y += 22;
+  const distKm = Number(train.train_distance_km || 0);
+  const travelText = [
+    String(train.train_travel || '').trim(),
+    distKm > 0 ? `(ระยะทาง ${distKm.toLocaleString()} กม.)` : '',
+  ].filter(Boolean).join(' ');
+  doc.text('โดยพาหนะ', L, y);
+  drawDottedLine(doc, 118, 318, y + 16);
+  if (travelText) doc.text(travelText, 122, y, { width: 192, align: 'center', lineBreak: false });
+  doc.text('และมีผู้ร่วมเดินทางไปราชการครั้งนี้  คือ', 322, y, { width: 222, lineBreak: false });
+
+  let companions = [];
+  if (train.companions_json) {
+    try {
+      const parsed = JSON.parse(train.companions_json);
+      if (Array.isArray(parsed)) companions = parsed;
+    } catch {}
+  }
+  if (!companions.length && train.requester_name) {
+    companions = [{ name: train.requester_name, position: train.requester_position || '' }];
+  }
+
+  y += 24;
+  for (let i = 0; i < 6; i++) {
+    const comp = companions[i] || {};
+    doc.text(`${i + 1}.`, L + 46, y);
+    drawDottedLine(doc, L + 62, 316, y + 16);
+    if (comp.name) doc.text(String(comp.name).trim(), L + 66, y, { width: 192, lineBreak: false });
+    doc.text('ตำแหน่ง', 322, y);
+    drawDottedLine(doc, 368, R, y + 16);
+    if (comp.position) doc.text(String(comp.position).trim(), 372, y, { width: 166, lineBreak: false });
+    y += 21;
+  }
+
+  y += 6;
+  const orgBudget = String(train.org_budget_text || '').trim();
+  doc.text('ในการไปราชการครั้งนี้  ขออนุมัติใช้งบประมาณจาก  (หน่วยงานผู้จัด)', L, y);
+  drawDottedLine(doc, 384, R, y + 16);
+  if (orgBudget) doc.text(orgBudget, 388, y, { width: 150, lineBreak: false });
+
+  y += 22;
+  const totalCost =
+    Number(train.train_pay_register || 0) +
+    Number(train.train_pay_apartment || 0) +
+    Number(train.train_pay_allowance || 0) +
+    Number(train.train_pay_travel || 0) +
+    Number(train.train_pay_other || 0);
+  const hospBudget = Number(train.hospital_budget || 0) > 0 ? Number(train.hospital_budget) : totalCost;
+  doc.text('เงินบำรุงโรงพยาบาลโคกศรีสุพรรณ   เป็นเงิน', L, y);
+  drawDottedLine(doc, 266, 362, y + 16);
+  if (hospBudget > 0) {
+    doc.text(hospBudget.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 268, y, {
+      width: 92,
+      align: 'center',
+      lineBreak: false,
+    });
+  }
+  doc.text('บาท', 368, y);
+
+  y += 24;
+  doc.text('จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ', L + 60, y);
+
+  const reqName = String(train.requester_name || '').trim();
+  const reqPos = String(train.requester_position || '').trim();
+  y = Math.min(Math.max(y + 20, 494), 522);
+  doc.text('(ลงชื่อ)', 294, y);
+  drawDottedLine(doc, 328, 492, y + 16);
+  doc.text('ผู้ขออนุมัติ', 496, y);
+
+  y += 21;
+  doc.text('(', 322, y);
+  drawDottedLine(doc, 330, 488, y + 16);
+  if (reqName) doc.text(reqName, 330, y, { width: 158, align: 'center', lineBreak: false });
+  doc.text(')', 490, y);
+
+  y += 21;
+  doc.text('ตำแหน่ง', 274, y);
+  drawDottedLine(doc, 320, 492, y + 16);
+  if (reqPos) doc.text(reqPos, 324, y, { width: 166, align: 'center', lineBreak: false });
+
+  y = Math.min(y + 24, 592);
+  doc.text('ความเห็นของหัวหน้ากลุ่มงาน', L, y);
+  y += 20;
+  doc.text('-', L + 16, y);
+  doc.text('เห็นควรอนุมัติ', L + 40, y);
+
+  y = Math.min(y + 34, 650);
+  doc.text('(    )  อนุมัติ        (    )  ไม่อนุมัติ', 208, y, { lineBreak: false });
+
+  const dirName = String(train.director_name || 'นางณัฐปภัสร์  นวัตชัยศิริกุล').trim();
+  const dirPos1 = String(train.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ  รักษาการในตำแหน่ง').trim();
+  const dirPos2 = String(train.director_pos2 || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ').trim();
+
+  const dirY = Math.min(y + 54, 722);
+  doc.text(`( ${dirName} )`, 255, dirY, { width: 265, align: 'center', lineBreak: false });
+  doc.text(dirPos1, 255, dirY + 20, { width: 265, align: 'center', lineBreak: false });
+  doc.text(dirPos2, 255, dirY + 40, { width: 265, align: 'center', lineBreak: false });
+
   drawFooterTimestamp(doc);
-
-  return sendPdf(doc, `train-${train.train_data_id}.pdf`, res, isDownload);
+  return sendPdf(doc, `memo-travel-${train.train_data_id}.pdf`, res, isDownload);
 }
 
 /**

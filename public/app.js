@@ -705,7 +705,7 @@ async function loadTrains(page = 1, mineOnly = false) {
       <td>${t.train_sum_day || '-'} วัน</td>
       <td style="white-space:nowrap">
         ${t.has_image ? `<button class="btn-soft btn-sm" onclick="openTrainImageModal(${t.train_data_id})">🖼️ ดูรูปภาพ</button>` : ''}
-        ${state.user ? `<button class="btn-soft btn-sm" onclick="openPdfModal('รายงานอบรม #${t.train_data_id}', '/api/trains/${t.train_data_id}/pdf')">🖨️ PDF</button>` : '-'}
+        ${state.user ? `<button class="btn-soft btn-sm" onclick="openPdfModal('บันทึกข้อความขออนุมัติไปราชการ #${t.train_data_id}', '/api/trains/${t.train_data_id}/pdf')">🖨️ PDF</button>` : '-'}
         ${canEdit ? `<button class="btn-ghost btn-sm" onclick="editTrain(${t.train_data_id})">✏️ แก้ไข</button>` : ''}
         ${state.user?.isAdmin ? `<button class="btn-danger btn-sm" onclick="deleteTrain(${t.train_data_id})">ลบ</button>` : ''}
       </td>
@@ -719,6 +719,37 @@ async function loadTrains(page = 1, mineOnly = false) {
       <button class="btn-soft btn-sm" ${data.page >= data.totalPages ? 'disabled' : ''} onclick="loadTrains(${data.page + 1})">ถัดไป ▶</button>
     </div>
   `;
+}
+
+function renderCompanionRows(companions = []) {
+  const box = document.getElementById('tCompanionsList');
+  if (!box) return;
+  const personOpts = '<option value="">-- เลือกจากรายชื่อ --</option>' +
+    (state.master?.persons || []).map((p) => `<option value="${p.person_id}">${esc(p.full_name)}</option>`).join('');
+  let html = '';
+  for (let i = 1; i <= 6; i++) {
+    const c = companions[i - 1] || {};
+    html += `
+      <div class="companion-row">
+        <span class="companion-num">${i}.</span>
+        <select class="table-select" onchange="onPickCompanion(${i}, this)">${personOpts}</select>
+        <input type="text" id="tCompName_${i}" class="table-input" placeholder="ชื่อ-นามสกุล คนที่ ${i}" value="${esc(c.name || '')}" />
+        <input type="text" id="tCompPos_${i}" class="table-input" placeholder="ตำแหน่ง" value="${esc(c.position || '')}" />
+      </div>
+    `;
+  }
+  box.innerHTML = html;
+}
+
+function onPickCompanion(idx, sel) {
+  const pid = Number(sel.value || 0);
+  if (!pid) return;
+  const p = (state.master?.persons || []).find((x) => Number(x.person_id) === pid);
+  if (!p) return;
+  const nameEl = document.getElementById(`tCompName_${idx}`);
+  const posEl = document.getElementById(`tCompPos_${idx}`);
+  if (nameEl) nameEl.value = p.full_name || '';
+  if (posEl) posEl.value = p.position_name || '';
 }
 
 function openTrainModal() {
@@ -739,6 +770,13 @@ function openTrainModal() {
   document.getElementById('tPayAllow').value = '0';
   document.getElementById('tPayTravel').value = '0';
   document.getElementById('tDistanceKm').value = '0';
+  document.getElementById('tMemoDate').value = today;
+  document.getElementById('tRequestDept').value = state.user?.department_name || '';
+  document.getElementById('tOrgBudgetText').value = '';
+  document.getElementById('tDirName').value = 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
+  document.getElementById('tDirPos1').value = 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
+  document.getElementById('tDirPos2').value = 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ';
+  renderCompanionRows([{ name: state.user?.fullName || '', position: state.user?.position_name || '' }]);
   document.getElementById('tImageData').value = '';
   document.getElementById('tImageName').value = '';
   document.getElementById('tImageFile').value = '';
@@ -862,6 +900,24 @@ async function editTrain(id) {
   document.getElementById('tPayAllow').value = t.train_pay_allowance || 0;
   document.getElementById('tPayTravel').value = t.train_pay_travel || 0;
   document.getElementById('tDistanceKm').value = t.train_distance_km || 0;
+  const fallbackDate = String(t.train_startdate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  document.getElementById('tMemoDate').value = t.memo_date ? String(t.memo_date).slice(0, 10) : fallbackDate;
+  document.getElementById('tRequestDept').value = t.request_dept || t.requester_dept || '';
+  document.getElementById('tOrgBudgetText').value = t.org_budget_text || '';
+  document.getElementById('tDirName').value = t.director_name || 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
+  document.getElementById('tDirPos1').value = t.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
+  document.getElementById('tDirPos2').value = t.director_pos2 || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ';
+  let comps = [];
+  if (t.companions_json) {
+    try {
+      const parsed = JSON.parse(t.companions_json);
+      if (Array.isArray(parsed)) comps = parsed;
+    } catch {}
+  }
+  if (!comps.length && t.requester_name) {
+    comps = [{ name: t.requester_name, position: t.requester_position || '' }];
+  }
+  renderCompanionRows(comps);
   document.getElementById('tImageFile').value = '';
   document.getElementById('tImageData').value = t.train_image || '';
   document.getElementById('tImageName').value = t.train_image_name || '';
@@ -879,6 +935,17 @@ async function editTrain(id) {
 async function submitTrain(e) {
   e.preventDefault();
   const id = document.getElementById('tId').value;
+  const companions = [];
+  for (let i = 1; i <= 6; i++) {
+    const name = String(document.getElementById(`tCompName_${i}`)?.value || '').trim();
+    const position = String(document.getElementById(`tCompPos_${i}`)?.value || '').trim();
+    if (name || position) companions.push({ name, position });
+  }
+  const num = (elId) => {
+    const v = Number(document.getElementById(elId)?.value || 0);
+    return Number.isFinite(v) ? v : 0;
+  };
+  const hospBudget = num('tPayReg') + num('tPayApt') + num('tPayAllow') + num('tPayTravel');
   const payload = {
     train_topic: document.getElementById('tTopic').value,
     train_order: document.getElementById('tOrder').value,
@@ -896,6 +963,14 @@ async function submitTrain(e) {
     train_pay_allowance: document.getElementById('tPayAllow').value,
     train_pay_travel: document.getElementById('tPayTravel').value,
     train_distance_km: document.getElementById('tDistanceKm').value,
+    memo_date: document.getElementById('tMemoDate').value,
+    request_dept: document.getElementById('tRequestDept').value,
+    org_budget_text: document.getElementById('tOrgBudgetText').value,
+    hospital_budget: hospBudget,
+    companions,
+    director_name: document.getElementById('tDirName').value,
+    director_pos1: document.getElementById('tDirPos1').value,
+    director_pos2: document.getElementById('tDirPos2').value,
     train_image: document.getElementById('tImageData').value,
     train_image_name: document.getElementById('tImageName').value,
   };
