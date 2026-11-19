@@ -272,6 +272,104 @@ function goCalToday() {
   loadCalendar();
 }
 
+let dayModalItems = [];
+
+function renderCalendarGrid(gridId, items, year, month, source) {
+  const firstDay = new Date(year, month - 1, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const dayNum = i - startOffset + 1;
+    const d = new Date(year, month - 1, dayNum);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const isOther = dayNum < 1 || dayNum > daysInMonth;
+    const dayItems = items.filter((x) => iso >= String(x.leave_startdate).slice(0, 10) && iso <= String(x.leave_enddate).slice(0, 10));
+    const hasMulti = dayItems.length > 1;
+    const cellClick = hasMulti
+      ? `onclick="openDayLeavesModal('${iso}', '${source}')"`
+      : (dayItems.length === 1 ? `onclick="openLeaveDetail(${dayItems[0].hrd_leave_id})"` : '');
+
+    const chips = dayItems.slice(0, 2).map((r) => `
+      <div class="cal-chip" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
+           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}"
+           onclick="event.stopPropagation();openLeaveDetail(${r.hrd_leave_id})">
+        <span style="width:7px;height:7px;border-radius:50%;background:${esc(r.graph_color || '#0d9488')};flex-shrink:0;"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis;">${esc(r.full_name)}</span>
+      </div>
+    `).join('');
+
+    const more = hasMulti
+      ? `<div class="cal-more-pill" onclick="event.stopPropagation();openDayLeavesModal('${iso}', '${source}')">👥 ดูทั้งหมด ${dayItems.length} คน</div>`
+      : '';
+
+    html += `
+      <div class="cal-cell ${isOther ? 'other-month' : ''} ${iso === todayIso ? 'today' : ''} ${dayItems.length ? 'clickable-day' : ''} ${hasMulti ? 'has-multi' : ''}" ${cellClick}>
+        <div class="cal-cell-top">
+          <span>${d.getDate()}</span>
+          ${dayItems.length ? `<span class="cal-count ${hasMulti ? 'multi' : ''}">${dayItems.length}${hasMulti ? ' คน' : ''}</span>` : ''}
+        </div>
+        ${chips}${more}
+      </div>
+    `;
+  }
+  document.getElementById(gridId).innerHTML = html;
+}
+
+function openDayLeavesModal(iso, source) {
+  const list = source === 'admin' ? (state.adminCalItems || []) : (state.calItems || []);
+  dayModalItems = list.filter((x) => iso >= String(x.leave_startdate).slice(0, 10) && iso <= String(x.leave_enddate).slice(0, 10));
+  const p = iso.split('-');
+  const thaiDate = p.length === 3 ? `${Number(p[2])} ${THAI_FULL_MONTHS[Number(p[1]) - 1]} ${Number(p[0]) + 543}` : iso;
+  document.getElementById('dayLeavesTitle').textContent = `📅 รายชื่อผู้ลาวันที่ ${thaiDate} (${dayModalItems.length} รายการ)`;
+  document.getElementById('dayLeavesSearch').value = '';
+  renderDayLeavesList(dayModalItems);
+  document.getElementById('dayLeavesModal').classList.remove('hidden');
+}
+
+function filterDayLeavesModal() {
+  const q = String(document.getElementById('dayLeavesSearch').value || '').trim().toLowerCase();
+  if (!q) return renderDayLeavesList(dayModalItems);
+  const filtered = dayModalItems.filter((r) =>
+    `${r.full_name || ''} ${r.department_name || ''} ${r.hrd_leave_type_name || ''}`.toLowerCase().includes(q)
+  );
+  renderDayLeavesList(filtered);
+}
+
+function renderDayLeavesList(items) {
+  const body = document.getElementById('dayLeavesBody');
+  if (!items.length) {
+    body.innerHTML = '<div style="text-align:center;color:#64748b;padding:24px;">ไม่พบรายชื่อผู้ลาที่ตรงกับคำค้นหา</div>';
+    return;
+  }
+  body.innerHTML = items.map((r) => {
+    const initial = (String(r.full_name || '').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.)\s*/i, '').trim()[0] || '?');
+    const dateTxt = String(r.leave_startdate).slice(0, 10) === String(r.leave_enddate).slice(0, 10)
+      ? fmtThaiDate(r.leave_startdate)
+      : `${fmtThaiDate(r.leave_startdate)} - ${fmtThaiDate(r.leave_enddate)}`;
+    return `
+      <div class="day-leave-item" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
+           onclick="closeModal('dayLeavesModal');openLeaveDetail(${r.hrd_leave_id})">
+        <div class="day-leave-left">
+          <div class="person-avatar" style="background:${esc(r.graph_color || '#0d9488')}">${esc(initial)}</div>
+          <div style="min-width:0;">
+            <div style="font-weight:700;color:#0f172a;font-size:14.5px;">${esc(r.full_name)}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+              ${esc(r.department_name || '-')} • ${dateTxt} (${r.calc_days || 1} วัน)
+            </div>
+          </div>
+        </div>
+        <div class="day-leave-right">
+          <span class="badge" style="background:#f1f5f9;border-left:3px solid ${esc(r.graph_color || '#0d9488')}">${esc(r.hrd_leave_type_name)}</span>
+          <span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name || 'รออนุมัติ')}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 async function loadCalendar() {
   document.getElementById('calMonthTitle').textContent =
     `${THAI_FULL_MONTHS[state.calMonth - 1]} พ.ศ. ${state.calYear + 543}`;
@@ -282,39 +380,8 @@ async function loadCalendar() {
     mine: '1',
   });
   const data = await api(`/api/leaves/calendar?${params.toString()}`);
-  const firstDay = new Date(state.calYear, state.calMonth - 1, 1);
-  const startOffset = firstDay.getDay();
-  const daysInMonth = new Date(state.calYear, state.calMonth, 0).getDate();
-  const todayIso = new Date().toISOString().slice(0, 10);
-
-  let html = '';
-  for (let i = 0; i < 42; i++) {
-    const dayNum = i - startOffset + 1;
-    const d = new Date(state.calYear, state.calMonth - 1, dayNum);
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const isOther = dayNum < 1 || dayNum > daysInMonth;
-    const dayItems = data.items.filter((x) => iso >= String(x.leave_startdate).slice(0, 10) && iso <= String(x.leave_enddate).slice(0, 10));
-
-    const chips = dayItems.slice(0, 3).map((r) => `
-      <div class="cal-chip" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
-           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}"
-           onclick="openLeaveDetail(${r.hrd_leave_id})">
-        ${esc(r.full_name)}
-      </div>
-    `).join('');
-    const more = dayItems.length > 3 ? `<div class="cal-more" onclick="openDayInTable('${iso}')">+ อีก ${dayItems.length - 3} คน</div>` : '';
-
-    html += `
-      <div class="cal-cell ${isOther ? 'other-month' : ''} ${iso === todayIso ? 'today' : ''}">
-        <div class="cal-cell-top">
-          <span>${d.getDate()}</span>
-          ${dayItems.length ? `<span class="cal-count">${dayItems.length}</span>` : ''}
-        </div>
-        ${chips}${more}
-      </div>
-    `;
-  }
-  document.getElementById('calendarGrid').innerHTML = html;
+  state.calItems = data.items || [];
+  renderCalendarGrid('calendarGrid', state.calItems, state.calYear, state.calMonth, 'user');
 }
 
 function openDayInTable(iso) {
@@ -872,39 +939,25 @@ async function loadAdminCalendar() {
     all: '1',
   });
   const data = await api(`/api/leaves/calendar?${params.toString()}`);
-  const firstDay = new Date(state.adminCalYear, state.adminCalMonth - 1, 1);
-  const startOffset = firstDay.getDay();
-  const daysInMonth = new Date(state.adminCalYear, state.adminCalMonth, 0).getDate();
-  const todayIso = new Date().toISOString().slice(0, 10);
+  state.adminCalItems = data.items || [];
 
-  let html = '';
-  for (let i = 0; i < 42; i++) {
-    const dayNum = i - startOffset + 1;
-    const d = new Date(state.adminCalYear, state.adminCalMonth - 1, dayNum);
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const isOther = dayNum < 1 || dayNum > daysInMonth;
-    const dayItems = data.items.filter((x) => iso >= String(x.leave_startdate).slice(0, 10) && iso <= String(x.leave_enddate).slice(0, 10));
-
-    const chips = dayItems.slice(0, 3).map((r) => `
-      <div class="cal-chip" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
-           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}"
-           onclick="openLeaveDetail(${r.hrd_leave_id})">
-        ${esc(r.full_name)}
-      </div>
+  const legendMap = new Map();
+  state.adminCalItems.forEach((x) => {
+    if (!legendMap.has(x.hrd_leave_type_name)) {
+      legendMap.set(x.hrd_leave_type_name, x.graph_color || '#0d9488');
+    }
+  });
+  const legEl = document.getElementById('adminCalLegend');
+  if (legEl) {
+    legEl.innerHTML = [...legendMap.entries()].map(([name, color]) => `
+      <span class="cal-legend-item">
+        <span class="cal-legend-dot" style="background:${esc(color)}"></span>
+        <span>${esc(name)}</span>
+      </span>
     `).join('');
-    const more = dayItems.length > 3 ? `<div class="cal-more">+ อีก ${dayItems.length - 3} คน</div>` : '';
-
-    html += `
-      <div class="cal-cell ${isOther ? 'other-month' : ''} ${iso === todayIso ? 'today' : ''}">
-        <div class="cal-cell-top">
-          <span>${d.getDate()}</span>
-          ${dayItems.length ? `<span class="cal-count">${dayItems.length}</span>` : ''}
-        </div>
-        ${chips}${more}
-      </div>
-    `;
   }
-  document.getElementById('adminCalendarGrid').innerHTML = html;
+
+  renderCalendarGrid('adminCalendarGrid', state.adminCalItems, state.adminCalYear, state.adminCalMonth, 'admin');
 }
 
 async function loadAdminLeaves(page = 1) {

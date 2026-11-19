@@ -377,11 +377,14 @@
         </div>
 
         <div id="adminPane-calendar" class="glass-panel hidden">
-          <div class="panel-head">
-            <h2>ปฏิทินการลาบุคลากรทั้งโรงพยาบาล</h2>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <select id="adminCalDept" onchange="loadAdminCalendar()"><option value="">ทุกกลุ่มงาน</option></select>
-              <select id="adminCalType" onchange="loadAdminCalendar()"><option value="">ทุกประเภทการลา</option></select>
+          <div class="panel-head" style="margin-bottom:12px;">
+            <div>
+              <h2 style="margin:0;">🗓️ ปฏิทินการลาบุคลากรทั้งโรงพยาบาล</h2>
+              <p style="margin:4px 0 0;font-size:12.5px;color:#64748b;">คลิกที่วันที่มีการลาหลายรายการเพื่อเปิดดูรายชื่อผู้ลาทั้งหมด และคลิกชื่อเพื่อดูรายละเอียดใบลา</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <select id="adminCalDept" class="table-select" style="width:auto;min-width:200px;" onchange="loadAdminCalendar()"><option value="">ทุกกลุ่มงาน</option></select>
+              <select id="adminCalType" class="table-select" style="width:auto;min-width:170px;" onchange="loadAdminCalendar()"><option value="">ทุกประเภทการลา</option></select>
             </div>
           </div>
           <div class="cal-toolbar">
@@ -392,8 +395,9 @@
               <button class="btn-soft" onclick="changeAdminCalMonth(1)">เดือนถัดไป ▶</button>
             </div>
           </div>
+          <div id="adminCalLegend" class="cal-legend"></div>
           <div class="cal-weekdays">
-            <div>อา.</div><div>จ.</div><div>อ.</div><div>พ.</div><div>พฤ.</div><div>ศ.</div><div>ส.</div>
+            <div class="sun">อา.</div><div>จ.</div><div>อ.</div><div>พ.</div><div>พฤ.</div><div>ศ.</div><div class="sat">ส.</div>
           </div>
           <div id="adminCalendarGrid" class="cal-grid"></div>
         </div>
@@ -515,6 +519,20 @@
       </div>
       <div id="ldBody" class="detail-body"></div>
       <div class="form-actions" id="ldActions"></div>
+    </div>
+  </div>
+
+  <!-- DAY LEAVES LIST MODAL -->
+  <div id="dayLeavesModal" class="modal hidden no-print">
+    <div class="modal-card" style="max-width:680px;">
+      <div class="modal-head">
+        <h3 id="dayLeavesTitle">รายชื่อผู้ลา</h3>
+        <button class="close-btn" onclick="closeModal('dayLeavesModal')">✕</button>
+      </div>
+      <div style="padding:14px 20px 6px;">
+        <input type="text" id="dayLeavesSearch" class="table-input" placeholder="🔍 ค้นหาชื่อ-สกุล, กลุ่มงาน หรือประเภทการลาในวันนี้..." oninput="filterDayLeavesModal()" />
+      </div>
+      <div id="dayLeavesBody" class="day-leaves-list"></div>
     </div>
   </div>
 

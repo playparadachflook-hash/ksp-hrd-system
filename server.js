@@ -507,17 +507,25 @@ app.get('/api/leaves/calendar', async (req, res) => {
       `SELECT l.hrd_leave_id, l.person_id, l.hrd_leave_type_id, l.leave_startdate, l.leave_enddate,
               l.allow_id, l.leave_day, l.leave_day_type,
               CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              COALESCE(d.department_name, '') AS department_name,
+              COALESCE(a.allow_name, 'รออนุมัติ') AS allow_name,
               lt.hrd_leave_type_name, lt.graph_color
        FROM hrd_leave_data l
        LEFT JOIN hrd_person p ON p.person_id = l.person_id
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_department d ON d.department_id = COALESCE(NULLIF(l.department_id, 0), p.department_id)
+       LEFT JOIN hrd_allow a ON a.allow_id = l.allow_id
        LEFT JOIN hrd_leave_type lt ON lt.hrd_leave_type_id = l.hrd_leave_type_id
        WHERE l.leave_startdate <= ? AND l.leave_enddate >= ? ${extra}
        ORDER BY l.leave_startdate ASC, l.hrd_leave_id DESC
        LIMIT 500`,
       params
     );
-    res.json({ items: rows });
+    const items = rows.map((r) => ({
+      ...r,
+      calc_days: r.leave_day != null ? Number(r.leave_day) : calcLeaveDays(r.leave_startdate, r.leave_enddate, r.leave_day_type),
+    }));
+    res.json({ items });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
