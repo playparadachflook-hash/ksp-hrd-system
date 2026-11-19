@@ -136,21 +136,22 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
     const acc = Number(leave.leave_accumulate || 0);
     const annualRight = 10;
     const totalRight = acc + annualRight;
-    doc.text(
-      `มีวันลาพักผ่อนสะสม   ${acc || '     '}   วัน     มีสิทธิ์การลาพักผ่อนประจำปี   ${annualRight}   วันทำการ     รวมเป็น   ${totalRight}   วันทำการ`,
-      48,
-      y,
-      { width: 505 }
-    );
-    y += 24;
-    doc.text(`ขอลาพักผ่อนตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 490 });
-    y += 26;
-    doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`, 48, y, { width: 500 });
-    y += 22;
-    doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 64, y);
+    const rightTxt = `มีวันลาพักผ่อนสะสม   ${acc || '     '}   วัน     มีสิทธิ์การลาพักผ่อนประจำปี   ${annualRight}   วันทำการ     รวมเป็น   ${totalRight}   วันทำการ`;
+    doc.text(rightTxt, 48, y, { width: 505 });
+    y += Math.max(24, doc.heightOfString(rightTxt, { width: 505 }) + 6);
+
+    const vacRangeTxt = `ขอลาพักผ่อนตั้งแต่  ${startStr}  ถึง  ${endStr}  มีกำหนด  ${daysText}  วัน`;
+    doc.text(vacRangeTxt, 48, y, { width: 505 });
+    y += Math.max(24, doc.heightOfString(vacRangeTxt, { width: 505 }) + 6);
+
+    const vacAddrTxt = `ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่   ${contactAddr}`;
+    doc.text(vacAddrTxt, 48, y, { width: 505 });
+    y += Math.max(22, doc.heightOfString(vacAddrTxt, { width: 505 }) + 6);
+
+    doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 48, y);
 
     // Middle Section: Left = Leave Stats Table, Right = Applicant Signature
-    const midY = 344;
+    const midY = Math.max(344, y + 28);
     doc.font('ThaiBold').fontSize(15.5).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
 
     const tblX = 48;
@@ -218,11 +219,14 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
     y += 22;
     doc.text(`สังกัด   ${deptFull}  โรงพยาบาลโคกศรีสุพรรณ`, 48, y);
     y += 24;
-    doc.text(`ขอแจ้งยกเลิกวันลาตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 490 });
-    y += 24;
-    doc.text(`เนื่องจาก   ${(leave.leave_because_cancel || leave.leave_because || '-').trim()}`, 48, y, { width: 495 });
+    const cancelRangeTxt = `ขอแจ้งยกเลิกวันลาตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`;
+    doc.text(cancelRangeTxt, 48, y, { width: 505 });
+    y += Math.max(24, doc.heightOfString(cancelRangeTxt, { width: 505 }) + 6);
+    const cancelReasonTxt = `เนื่องจาก   ${(leave.leave_because_cancel || leave.leave_because || '-').trim()}`;
+    doc.text(cancelReasonTxt, 48, y, { width: 505 });
+    y += Math.max(24, doc.heightOfString(cancelReasonTxt, { width: 505 }) + 6);
 
-    const sigY = 330;
+    const sigY = Math.max(330, y + 28);
     doc.text('ขอแสดงความนับถือ', 325, sigY, { width: 220, align: 'center' });
     doc.text('ลงชื่อ....................................................', 325, sigY + 36, { width: 220, align: 'center' });
     doc.text(`( ${fullName} )`, 325, sigY + 56, { width: 220, align: 'center' });
@@ -289,15 +293,18 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
   const lastStart = lastL ? fmtThaiFullDate(lastL.leave_startdate) : '........................................';
   const lastEnd = lastL ? fmtThaiFullDate(lastL.leave_enddate) : '........................................';
   const lastDays = lastL ? String(lastL.days) : '.....';
-  doc.text(`ครั้งสุดท้าย ตั้งแต่   ${lastStart}   ถึง   ${lastEnd}   มีกำหนด  ${lastDays}  วัน`, 48, y, { width: 505 });
+  const lastRangeTxt = `ครั้งสุดท้าย ตั้งแต่   ${lastStart}   ถึง   ${lastEnd}   มีกำหนด  ${lastDays}  วัน`;
+  doc.text(lastRangeTxt, 48, y, { width: 505 });
+  y += Math.max(22, doc.heightOfString(lastRangeTxt, { width: 505 }) + 6);
 
-  y += 22;
-  doc.text(`ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่  ${contactAddr}`, 48, y, { width: 500 });
-  y += 22;
+  const sickAddrTxt = `ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่  ${contactAddr}`;
+  doc.text(sickAddrTxt, 48, y, { width: 505 });
+  y += Math.max(22, doc.heightOfString(sickAddrTxt, { width: 505 }) + 6);
+
   doc.text(`หมายเลขโทรศัพท์  ${contactTel}`, 48, y);
 
   // Middle Section: Left = Stats table (4x4), Right = Applicant Signature + Supervisor
-  const midY = 398;
+  const midY = Math.max(398, y + 28);
   doc.font('ThaiBold').fontSize(15).text('สถิติการลาในปีงบประมาณนี้', 48, midY);
   const tblX = 48;
   const tblY = midY + 26;
