@@ -242,6 +242,7 @@ app.get('/api/master', async (req, res) => {
       [trainAreas],
       [trainBudgets],
       [persons],
+      [personTypes],
     ] = await Promise.all([
       pool.query('SELECT hrd_leave_type_id, hrd_leave_type_name, graph_color FROM hrd_leave_type ORDER BY hrd_leave_type_id'),
       pool.query('SELECT leave_day_type_id, leave_day_type_name, leave_day FROM hrd_leave_day_type ORDER BY leave_day_type_id'),
@@ -261,6 +262,7 @@ app.get('/api/master', async (req, res) => {
          WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''
          ORDER BY p.fname, p.lname`
       ),
+      pool.query('SELECT person_type_id, person_type_name FROM hrd_person_type ORDER BY person_type_id'),
     ]);
     res.json({
       leaveTypes,
@@ -274,6 +276,7 @@ app.get('/api/master', async (req, res) => {
       trainAreas,
       trainBudgets,
       persons,
+      personTypes,
     });
   } catch (err) {
     console.error('Master error:', err);
@@ -1179,19 +1182,42 @@ app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
 app.get('/api/persons', requireAdmin, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
-    const where = q ? 'WHERE p.fname LIKE ? OR p.lname LIKE ? OR p.username LIKE ?' : '';
-    const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
+    const deptId = req.query.department_id ? Number(req.query.department_id) : 0;
+    const ptypeId = req.query.person_type_id ? Number(req.query.person_type_id) : 0;
+    const grpId = req.query.user_groups_id ? Number(req.query.user_groups_id) : 0;
+
+    const where = ["COALESCE(TRIM(p.fname), '') != ''"];
+    const params = [];
+    if (q) {
+      where.push('(p.fname LIKE ? OR p.lname LIKE ? OR p.username LIKE ? OR CAST(p.person_id AS CHAR) = ?)');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, q);
+    }
+    if (deptId) {
+      where.push('p.department_id = ?');
+      params.push(deptId);
+    }
+    if (ptypeId) {
+      where.push('p.person_type_id = ?');
+      params.push(ptypeId);
+    }
+    if (grpId) {
+      where.push('p.user_groups_id = ?');
+      params.push(grpId);
+    }
+
     const [rows] = await pool.query(
-      `SELECT p.person_id, p.username, p.user_groups_id, p.leave_accumulate, p.phone_number,
+      `SELECT p.person_id, p.username, p.user_groups_id, p.person_type_id, p.leave_accumulate, p.phone_number,
               CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
-              pos.position_name, d.department_name, ds.department_sub_name, ug.user_groups_th
+              pos.position_name, d.department_name, ds.department_sub_name,
+              ug.user_groups_th, pt.person_type_name
        FROM hrd_person p
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
        LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
        LEFT JOIN hrd_department d ON d.department_id = p.department_id
        LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
        LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
-       ${where}
+       LEFT JOIN hrd_person_type pt ON pt.person_type_id = p.person_type_id
+       WHERE ${where.join(' AND ')}
        ORDER BY p.fname, p.lname
        LIMIT 500`,
       params
@@ -1204,11 +1230,18 @@ app.get('/api/persons', requireAdmin, async (req, res) => {
 
 app.put('/api/persons/:id', requireAdmin, async (req, res) => {
   try {
-    const { user_groups_id, leave_accumulate } = req.body;
-    await pool.query(
-      'UPDATE hrd_person SET user_groups_id = ?, leave_accumulate = ? WHERE person_id = ?',
-      [Number(user_groups_id || 3), Number(leave_accumulate || 0), Number(req.params.id)]
-    );
+    const { user_groups_id, leave_accumulate, person_type_id } = req.body;
+    if (person_type_id != null) {
+      await pool.query(
+        'UPDATE hrd_person SET user_groups_id = ?, leave_accumulate = ?, person_type_id = ? WHERE person_id = ?',
+        [Number(user_groups_id || 3), Number(leave_accumulate || 0), Number(person_type_id || 1), Number(req.params.id)]
+      );
+    } else {
+      await pool.query(
+        'UPDATE hrd_person SET user_groups_id = ?, leave_accumulate = ? WHERE person_id = ?',
+        [Number(user_groups_id || 3), Number(leave_accumulate || 0), Number(req.params.id)]
+      );
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

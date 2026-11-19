@@ -119,6 +119,8 @@ async function loadMaster() {
   fill('adminFilterType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('adminCalDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
   fill('adminCalType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
+  fill('personDeptFilter', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
+  if (m.personTypes) fill('personTypeFilter', m.personTypes, 'person_type_id', 'person_type_name', 'ทุกประเภทบุคลากร');
   fill('fTypeId', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name');
   fill('fDayType', m.dayTypes, 'leave_day_type_id', 'leave_day_type_name');
   fill('fAssignedId', m.persons, 'person_id', 'full_name', '-- ไม่ระบุ --');
@@ -953,38 +955,99 @@ async function approveLeave(id, allowId) {
   loadDashboardStats();
 }
 
-async function loadPersons() {
-  const q = document.getElementById('personSearchQ').value;
-  const data = await api(`/api/persons?q=${encodeURIComponent(q)}`);
-  document.getElementById('personsTbody').innerHTML = data.items.map((p) => `
-    <tr>
-      <td>${p.person_id}</td>
-      <td><strong>${esc(p.full_name)}</strong></td>
-      <td><code>${esc(p.username || '-')}</code></td>
-      <td><small>${esc(p.position_name || '-')}</small></td>
-      <td><small>${esc(p.department_name || '-')}</small></td>
-      <td><input type="number" id="pAcc_${p.person_id}" value="${Number(p.leave_accumulate || 0)}" style="width:70px;padding:4px 6px;" /></td>
-      <td>
-        <select id="pGrp_${p.person_id}" style="padding:4px 6px;">
-          <option value="3" ${Number(p.user_groups_id) === 3 ? 'selected' : ''}>ผู้ใช้ทั่วไป</option>
-          <option value="2" ${Number(p.user_groups_id) === 2 ? 'selected' : ''}>ธุรการ (Admin)</option>
-          <option value="1" ${Number(p.user_groups_id) === 1 ? 'selected' : ''}>ผู้ดูแลระบบ</option>
-        </select>
-      </td>
-      <td><button class="btn-soft btn-sm" onclick="savePerson(${p.person_id})">บันทึก</button></td>
-    </tr>
-  `).join('');
+function resetPersonFilters() {
+  document.getElementById('personSearchQ').value = '';
+  document.getElementById('personDeptFilter').value = '';
+  document.getElementById('personTypeFilter').value = '';
+  document.getElementById('personGroupFilter').value = '';
+  loadPersons();
 }
 
-async function savePerson(id) {
+async function loadPersons() {
+  const params = new URLSearchParams({
+    q: document.getElementById('personSearchQ').value,
+    department_id: document.getElementById('personDeptFilter').value,
+    person_type_id: document.getElementById('personTypeFilter').value,
+    user_groups_id: document.getElementById('personGroupFilter').value,
+  });
+  const data = await api(`/api/persons?${params.toString()}`);
+  const items = data.items || [];
+
+  const adminCnt = items.filter((p) => [1, 2].includes(Number(p.user_groups_id))).length;
+  const accCnt = items.filter((p) => Number(p.leave_accumulate || 0) > 0).length;
+  const sumBar = document.getElementById('personsSummaryBar');
+  if (sumBar) {
+    sumBar.innerHTML = `
+      <span class="person-stat-pill teal">👥 แสดง ${items.length.toLocaleString()} คน</span>
+      <span class="person-stat-pill amber">🛡️ Admin / ธุรการ ${adminCnt} คน</span>
+      <span class="person-stat-pill">🏖️ มีวันลาสะสม ${accCnt} คน</span>
+    `;
+  }
+
+  const pTypes = state.master?.personTypes || [];
+  document.getElementById('personsTbody').innerHTML = items.map((p) => {
+    const isAdm = [1, 2].includes(Number(p.user_groups_id));
+    const initial = (String(p.full_name || '').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.)\s*/i, '').trim()[0] || '?');
+    const typeOpts = pTypes.length
+      ? pTypes.map((pt) => `<option value="${pt.person_type_id}" ${Number(p.person_type_id) === Number(pt.person_type_id) ? 'selected' : ''}>${esc(pt.person_type_name)}</option>`).join('')
+      : `<option value="${Number(p.person_type_id || 1)}">${esc(p.person_type_name || 'ข้าราชการ')}</option>`;
+    return `
+      <tr>
+        <td>
+          <div class="person-cell">
+            <div class="person-avatar ${isAdm ? 'is-admin' : ''}">${esc(initial)}</div>
+            <div>
+              <strong>${esc(p.full_name)}</strong>
+              <div class="person-meta">
+                <span class="person-id-tag">#${p.person_id}</span>
+                <span><code>${esc(p.username || 'ไม่มี Username')}</code></span>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <div style="font-weight:500;color:#1e293b;">${esc(p.position_name || '-')}</div>
+          <small style="color:#64748b;">${esc(p.department_name || '-')}</small>
+        </td>
+        <td>
+          <select id="pType_${p.person_id}" class="table-select">${typeOpts}</select>
+        </td>
+        <td>
+          <input type="number" step="0.5" min="0" id="pAcc_${p.person_id}" class="table-input table-input-num" value="${Number(p.leave_accumulate || 0)}" />
+        </td>
+        <td>
+          <select id="pGrp_${p.person_id}" class="table-select">
+            <option value="3" ${Number(p.user_groups_id) === 3 ? 'selected' : ''}>ผู้ใช้ทั่วไป</option>
+            <option value="2" ${Number(p.user_groups_id) === 2 ? 'selected' : ''}>ธุรการ (Admin)</option>
+            <option value="1" ${Number(p.user_groups_id) === 1 ? 'selected' : ''}>ผู้ดูแลระบบ</option>
+          </select>
+        </td>
+        <td style="text-align:center;">
+          <button class="btn-save-row" onclick="savePerson(${p.person_id}, this)">💾 บันทึก</button>
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:28px;">ไม่พบข้อมูลบุคลากรที่ค้นหา</td></tr>';
+}
+
+async function savePerson(id, btn) {
   await api(`/api/persons/${id}`, {
     method: 'PUT',
     body: JSON.stringify({
       leave_accumulate: document.getElementById(`pAcc_${id}`).value,
       user_groups_id: document.getElementById(`pGrp_${id}`).value,
+      person_type_id: document.getElementById(`pType_${id}`).value,
     }),
   });
-  alert('บันทึกข้อมูลบุคลากรเรียบร้อย');
+  if (btn) {
+    const oldText = btn.textContent;
+    btn.textContent = '✓ บันทึกแล้ว';
+    btn.classList.add('saved');
+    setTimeout(() => {
+      btn.textContent = oldText;
+      btn.classList.remove('saved');
+    }, 1800);
+  }
 }
 
 async function checkSystemUpdate() {

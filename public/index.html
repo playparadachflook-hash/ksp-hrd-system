@@ -399,25 +399,36 @@
         </div>
 
         <div id="adminPane-persons" class="glass-panel hidden">
-          <div class="panel-head">
-            <h2>ข้อมูลบุคลากรและวันลาพักผ่อนสะสม (db_hrd)</h2>
-            <div style="display:flex;gap:8px;">
-              <input type="text" id="personSearchQ" placeholder="ค้นหาชื่อ / Username..." />
-              <button class="btn-soft" onclick="loadPersons()">ค้นหา</button>
+          <div class="panel-head" style="margin-bottom:10px;">
+            <div>
+              <h2 style="margin:0;">👥 ข้อมูลบุคลากรและวันลาพักผ่อนสะสม</h2>
+              <p style="margin:4px 0 0;font-size:12.5px;color:#64748b;">จัดการประเภทบุคลากร วันลาพักผ่อนสะสม และสิทธิ์การใช้งานระบบ (ฐานข้อมูล <code>db_hrd</code>)</p>
             </div>
+            <div id="personsSummaryBar" class="persons-summary-bar"></div>
+          </div>
+          <div class="filter-bar" style="margin-bottom:14px;">
+            <input type="text" id="personSearchQ" placeholder="ค้นหา: ชื่อ-สกุล, Username, รหัส..." onkeydown="if(event.key==='Enter')loadPersons()" />
+            <select id="personDeptFilter" onchange="loadPersons()"><option value="">ทุกกลุ่มงาน</option></select>
+            <select id="personTypeFilter" onchange="loadPersons()"><option value="">ทุกประเภทบุคลากร</option></select>
+            <select id="personGroupFilter" onchange="loadPersons()">
+              <option value="">ทุกสิทธิ์ระบบ</option>
+              <option value="1">ผู้ดูแลระบบ</option>
+              <option value="2">ธุรการ (Admin)</option>
+              <option value="3">ผู้ใช้ทั่วไป</option>
+            </select>
+            <button class="btn-soft" onclick="loadPersons()">ค้นหา</button>
+            <button class="btn-ghost" onclick="resetPersonFilters()">รีเซ็ต</button>
           </div>
           <div class="table-wrap">
-            <table>
+            <table class="persons-table">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>ชื่อ-นามสกุล</th>
-                  <th>Username</th>
-                  <th>ตำแหน่ง</th>
-                  <th>กลุ่มงาน</th>
-                  <th>วันลาสะสม</th>
-                  <th>สิทธิ์</th>
-                  <th>บันทึก</th>
+                  <th>บุคลากร</th>
+                  <th>ตำแหน่ง / กลุ่มงาน</th>
+                  <th>ประเภทบุคลากร</th>
+                  <th style="width:120px;">วันลาสะสม</th>
+                  <th style="width:165px;">สิทธิ์ระบบ</th>
+                  <th style="width:110px;text-align:center;">จัดการ</th>
                 </tr>
               </thead>
               <tbody id="personsTbody"></tbody>
