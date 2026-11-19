@@ -703,6 +703,7 @@ async function loadTrains(page = 1, mineOnly = false) {
       <td style="white-space:nowrap">${fmtThaiDate(t.train_startdate)} - ${fmtThaiDate(t.train_enddate)}</td>
       <td>${t.train_sum_day || '-'} วัน</td>
       <td style="white-space:nowrap">
+        ${t.has_image ? `<button class="btn-soft btn-sm" onclick="openTrainImageModal(${t.train_data_id})">🖼️ ดูรูปภาพ</button>` : ''}
         ${state.user ? `<button class="btn-soft btn-sm" onclick="openPdfModal('รายงานอบรม #${t.train_data_id}', '/api/trains/${t.train_data_id}/pdf')">🖨️ PDF</button>` : '-'}
         ${canEdit ? `<button class="btn-ghost btn-sm" onclick="editTrain(${t.train_data_id})">✏️ แก้ไข</button>` : ''}
         ${state.user?.isAdmin ? `<button class="btn-danger btn-sm" onclick="deleteTrain(${t.train_data_id})">ลบ</button>` : ''}
@@ -734,7 +735,56 @@ function openTrainModal() {
   document.getElementById('tPayReg').value = '0';
   document.getElementById('tPayApt').value = '0';
   document.getElementById('tPayAllow').value = '0';
+  document.getElementById('tImageData').value = '';
+  document.getElementById('tImageName').value = '';
+  document.getElementById('tImageFile').value = '';
+  document.getElementById('tImagePreview').src = '';
+  document.getElementById('tImagePreviewWrap').classList.add('hidden');
   document.getElementById('trainModal').classList.remove('hidden');
+}
+
+function onTrainImageSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 1200;
+      const scale = img.width > maxW ? maxW / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      document.getElementById('tImageData').value = dataUrl;
+      document.getElementById('tImageName').value = file.name || 'image.jpg';
+      document.getElementById('tImagePreview').src = dataUrl;
+      document.getElementById('tImagePreviewWrap').classList.remove('hidden');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeTrainImage() {
+  document.getElementById('tImageData').value = '__REMOVE__';
+  document.getElementById('tImageName').value = '';
+  document.getElementById('tImageFile').value = '';
+  document.getElementById('tImagePreview').src = '';
+  document.getElementById('tImagePreviewWrap').classList.add('hidden');
+}
+
+async function openTrainImageModal(id) {
+  try {
+    const data = await api(`/api/trains/${id}/image`);
+    document.getElementById('trainImageModalTitle').textContent = `🖼️ ${data.train_topic || `รูปภาพอบรม #${id}`}`;
+    document.getElementById('trainImageModalImg').src = data.image_data;
+    document.getElementById('trainImageModal').classList.remove('hidden');
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function editTrain(id) {
@@ -755,6 +805,16 @@ async function editTrain(id) {
   document.getElementById('tPayReg').value = t.train_pay_register || 0;
   document.getElementById('tPayApt').value = t.train_pay_apartment || 0;
   document.getElementById('tPayAllow').value = t.train_pay_allowance || 0;
+  document.getElementById('tImageFile').value = '';
+  document.getElementById('tImageData').value = t.train_image || '';
+  document.getElementById('tImageName').value = t.train_image_name || '';
+  if (t.train_image) {
+    document.getElementById('tImagePreview').src = t.train_image;
+    document.getElementById('tImagePreviewWrap').classList.remove('hidden');
+  } else {
+    document.getElementById('tImagePreview').src = '';
+    document.getElementById('tImagePreviewWrap').classList.add('hidden');
+  }
   document.getElementById('trainModal').classList.remove('hidden');
 }
 
@@ -775,6 +835,8 @@ async function submitTrain(e) {
     train_pay_register: document.getElementById('tPayReg').value,
     train_pay_apartment: document.getElementById('tPayApt').value,
     train_pay_allowance: document.getElementById('tPayAllow').value,
+    train_image: document.getElementById('tImageData').value,
+    train_image_name: document.getElementById('tImageName').value,
   };
   try {
     if (id) {

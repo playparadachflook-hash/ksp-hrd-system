@@ -13,7 +13,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3535);
 const PKG = require('./package.json');
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
@@ -806,16 +806,42 @@ app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
 });
 
 // ==================== TRAINING DATA ====================
-(async function ensureTrainTravelColumn() {
+(async function ensureTrainSchema() {
   try {
     const [cols] = await pool.query("SHOW COLUMNS FROM hrd_train_data LIKE 'train_travel'");
     if (!cols.length) {
       await pool.query("ALTER TABLE hrd_train_data ADD COLUMN train_travel VARCHAR(100) NULL DEFAULT '' AFTER train_order");
     }
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hrd_train_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        train_data_id INT NOT NULL UNIQUE,
+        mime_type VARCHAR(50) NOT NULL DEFAULT 'image/jpeg',
+        file_name VARCHAR(255) DEFAULT '',
+        image_data MEDIUMTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
   } catch (err) {
-    console.warn('ensureTrainTravelColumn skipped:', err.message);
+    console.warn('ensureTrainSchema skipped:', err.message);
   }
 })();
+
+async function saveTrainImage(trainDataId, trainImage, fileName = '') {
+  if (trainImage === '__REMOVE__') {
+    await pool.query('DELETE FROM hrd_train_images WHERE train_data_id = ?', [trainDataId]);
+    return;
+  }
+  const s = String(trainImage || '').trim();
+  const m = s.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+  if (!m) return;
+  await pool.query(
+    `INSERT INTO hrd_train_images (train_data_id, mime_type, file_name, image_data)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_name = VALUES(file_name), image_data = VALUES(image_data)`,
+    [trainDataId, m[1], String(fileName || ''), s]
+  );
+}
 
 app.get('/api/trains', async (req, res) => {
   try {
@@ -846,7 +872,8 @@ app.get('/api/trains', async (req, res) => {
     const total = Number(cntRow?.cnt || 0);
     const [items] = await pool.query(
       `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
-              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
@@ -854,6 +881,7 @@ app.get('/api/trains', async (req, res) => {
        LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
        LEFT JOIN hrd_person p ON p.person_id = t.person_id
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_train_images ti ON ti.train_data_id = t.train_data_id
        ${whereSql}
        ORDER BY t.train_data_id DESC
        LIMIT ? OFFSET ?`,
@@ -868,16 +896,34 @@ app.get('/api/trains', async (req, res) => {
 app.get('/api/trains/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name
+      `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
+              ti.image_data AS train_image, ti.file_name AS train_image_name
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
        LEFT JOIN hrd_train_area ar ON ar.train_area_id = t.train_area_id
        LEFT JOIN hrd_train_budget tb ON tb.train_budget_id = t.train_budget_id
+       LEFT JOIN hrd_train_images ti ON ti.train_data_id = t.train_data_id
        WHERE t.train_data_id = ? LIMIT 1`,
       [Number(req.params.id)]
     );
     if (!rows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลอบรม' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/trains/:id/image', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ti.train_data_id, ti.mime_type, ti.file_name, ti.image_data, t.train_topic
+       FROM hrd_train_images ti
+       JOIN hrd_train_data t ON t.train_data_id = ti.train_data_id
+       WHERE ti.train_data_id = ? LIMIT 1`,
+      [Number(req.params.id)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบรูปภาพประกอบการอบรมนี้' });
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -935,6 +981,7 @@ app.post('/api/trains', requireAuth, async (req, res) => {
         req.session.user.person_id,
       ]
     );
+    await saveTrainImage(result.insertId, b.train_image, b.train_image_name);
     res.json({ ok: true, id: result.insertId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -975,6 +1022,7 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
         id,
       ]
     );
+    await saveTrainImage(id, b.train_image, b.train_image_name);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -983,7 +1031,9 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
 
 app.delete('/api/trains/:id', requireAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    await pool.query('DELETE FROM hrd_train_images WHERE train_data_id = ?', [id]);
+    await pool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
