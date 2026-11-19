@@ -6,6 +6,7 @@ const express = require('express');
 const session = require('express-session');
 const { pool, md5 } = require('./src/db');
 const { generateLeavePdf, generateTrainPdf, generateReportPdf } = require('./src/pdf');
+const { registerMophProviderRoutes } = require('./src/mophAuth');
 
 const execAsync = promisify(exec);
 const app = express();
@@ -169,6 +170,61 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+registerMophProviderRoutes(app, {
+  resolveSessionUser: async (profile, opdUser) => {
+    const hashCid = String(profile.hash_cid || '').trim().toLowerCase();
+    const firstTh = String(profile.firstname_th || '').trim();
+    const lastTh = String(profile.lastname_th || '').trim();
+    const baseSql = `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
+              p.department_id, p.department_sub_id, p.position_id, p.person_type_id,
+              p.leave_accumulate, p.leave_accumulate_peryear,
+              pn.prename_name, pos.position_name, d.department_name, ds.department_sub_name,
+              ug.user_groups_th, pt.person_type_name
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_department_sub ds ON ds.department_sub_id = p.department_sub_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
+       LEFT JOIN hrd_person_type pt ON pt.person_type_id = p.person_type_id`;
+    let rows = [];
+    if (hashCid) {
+      [rows] = await pool.query(`${baseSql} WHERE LOWER(SHA2(REPLACE(REPLACE(TRIM(p.cid), '-', ''), ' ', ''), 256)) = ? LIMIT 1`, [hashCid]);
+    }
+    if (!rows.length && opdUser?.cid) {
+      [rows] = await pool.query(`${baseSql} WHERE REPLACE(REPLACE(TRIM(p.cid), '-', ''), ' ', '') = ? LIMIT 1`, [String(opdUser.cid).replace(/[-\s]/g, '')]);
+    }
+    if (!rows.length && opdUser?.loginname) {
+      [rows] = await pool.query(`${baseSql} WHERE LOWER(p.username) = LOWER(?) LIMIT 1`, [opdUser.loginname]);
+    }
+    if (!rows.length && firstTh && lastTh) {
+      [rows] = await pool.query(`${baseSql} WHERE TRIM(p.fname) LIKE ? AND TRIM(p.lname) LIKE ? LIMIT 1`, [`%${firstTh}%`, `%${lastTh}%`]);
+    }
+    if (!rows.length) return null;
+    const user = rows[0];
+    const fullName = `${user.prename_name || ''}${String(user.fname || '').trim()} ${String(user.lname || '').trim()}`.trim();
+    return {
+      person_id: user.person_id,
+      username: user.username,
+      fullName,
+      phone_number: user.phone_number || '',
+      department_id: user.department_id,
+      department_name: user.department_name || '',
+      department_sub_id: user.department_sub_id,
+      department_sub_name: user.department_sub_name || '',
+      position_id: user.position_id,
+      position_name: user.position_name || '',
+      person_type_id: Number(user.person_type_id || 1),
+      person_type_name: user.person_type_name || 'ข้าราชการ',
+      user_groups_id: Number(user.user_groups_id || 3),
+      userGroupLabel: user.user_groups_th || 'ผู้ใช้งานทั่วไป',
+      leave_accumulate: Number(user.leave_accumulate || 0),
+      leave_accumulate_peryear: user.leave_accumulate_peryear != null ? Number(user.leave_accumulate_peryear) : 10,
+      isAdmin: [1, 2].includes(Number(user.user_groups_id)),
+    };
+  },
 });
 
 // ==================== MASTER LOOKUPS ====================
