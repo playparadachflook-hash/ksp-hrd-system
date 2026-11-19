@@ -812,6 +812,10 @@ app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
     if (!cols.length) {
       await pool.query("ALTER TABLE hrd_train_data ADD COLUMN train_travel VARCHAR(100) NULL DEFAULT '' AFTER train_order");
     }
+    const [distCols] = await pool.query("SHOW COLUMNS FROM hrd_train_data LIKE 'train_distance_km'");
+    if (!distCols.length) {
+      await pool.query("ALTER TABLE hrd_train_data ADD COLUMN train_distance_km DECIMAL(10,2) NULL DEFAULT 0 AFTER train_travel");
+    }
     await pool.query(`
       CREATE TABLE IF NOT EXISTS hrd_train_images (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -956,10 +960,10 @@ app.post('/api/trains', requireAuth, async (req, res) => {
     const [result] = await pool.query(
       `INSERT INTO hrd_train_data (
         train_topic, train_org, train_place, train_startdate, train_enddate, train_sum_day,
-        train_type_id, train_about_id, train_area_id, train_budget_id, train_order, train_travel,
+        train_type_id, train_about_id, train_area_id, train_budget_id, train_order, train_travel, train_distance_km,
         train_pay_register, train_pay_apartment, train_pay_allowance, train_pay_travel, train_pay_other,
         allow_id, person_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       [
         b.train_topic,
         b.train_org || '',
@@ -973,6 +977,7 @@ app.post('/api/trains', requireAuth, async (req, res) => {
         b.train_budget_id ? Number(b.train_budget_id) : null,
         b.train_order || '',
         b.train_travel || '',
+        Number(b.train_distance_km || 0),
         Number(b.train_pay_register || 0),
         Number(b.train_pay_apartment || 0),
         Number(b.train_pay_allowance || 0),
@@ -1001,8 +1006,8 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
     await pool.query(
       `UPDATE hrd_train_data
        SET train_topic = ?, train_org = ?, train_place = ?, train_startdate = ?, train_enddate = ?, train_sum_day = ?,
-           train_type_id = ?, train_area_id = ?, train_budget_id = ?, train_order = ?, train_travel = ?,
-           train_pay_register = ?, train_pay_apartment = ?, train_pay_allowance = ?
+           train_type_id = ?, train_area_id = ?, train_budget_id = ?, train_order = ?, train_travel = ?, train_distance_km = ?,
+           train_pay_register = ?, train_pay_apartment = ?, train_pay_allowance = ?, train_pay_travel = ?
        WHERE train_data_id = ?`,
       [
         b.train_topic,
@@ -1016,9 +1021,11 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
         b.train_budget_id ? Number(b.train_budget_id) : null,
         b.train_order || '',
         b.train_travel || '',
+        Number(b.train_distance_km || 0),
         Number(b.train_pay_register || 0),
         Number(b.train_pay_apartment || 0),
         Number(b.train_pay_allowance || 0),
+        Number(b.train_pay_travel || 0),
         id,
       ]
     );

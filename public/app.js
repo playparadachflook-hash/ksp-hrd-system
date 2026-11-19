@@ -735,6 +735,8 @@ function openTrainModal() {
   document.getElementById('tPayReg').value = '0';
   document.getElementById('tPayApt').value = '0';
   document.getElementById('tPayAllow').value = '0';
+  document.getElementById('tPayTravel').value = '0';
+  document.getElementById('tDistanceKm').value = '0';
   document.getElementById('tImageData').value = '';
   document.getElementById('tImageName').value = '';
   document.getElementById('tImageFile').value = '';
@@ -805,6 +807,8 @@ async function editTrain(id) {
   document.getElementById('tPayReg').value = t.train_pay_register || 0;
   document.getElementById('tPayApt').value = t.train_pay_apartment || 0;
   document.getElementById('tPayAllow').value = t.train_pay_allowance || 0;
+  document.getElementById('tPayTravel').value = t.train_pay_travel || 0;
+  document.getElementById('tDistanceKm').value = t.train_distance_km || 0;
   document.getElementById('tImageFile').value = '';
   document.getElementById('tImageData').value = t.train_image || '';
   document.getElementById('tImageName').value = t.train_image_name || '';
@@ -835,6 +839,8 @@ async function submitTrain(e) {
     train_pay_register: document.getElementById('tPayReg').value,
     train_pay_apartment: document.getElementById('tPayApt').value,
     train_pay_allowance: document.getElementById('tPayAllow').value,
+    train_pay_travel: document.getElementById('tPayTravel').value,
+    train_distance_km: document.getElementById('tDistanceKm').value,
     train_image: document.getElementById('tImageData').value,
     train_image_name: document.getElementById('tImageName').value,
   };
