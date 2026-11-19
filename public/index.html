@@ -258,7 +258,7 @@
             <button class="btn-aurora" onclick="openTrainModal()">+ บันทึกการอบรมใหม่</button>
           </div>
           <div class="filter-bar">
-            <input type="text" id="trainQ" placeholder="ค้นหา: หัวข้ออบรม, หน่วยงานจัด, สถานที่..." />
+            <input type="text" id="trainQ" placeholder="ค้นหา: หัวข้ออบรม, เลขที่หนังสือ, หน่วยงานจัด, สถานที่..." />
             <select id="trainTypeFilter"><option value="">ทุกประเภทการอบรม</option></select>
             <button class="btn-soft" onclick="loadTrains(1)">ค้นหา</button>
           </div>
@@ -267,11 +267,12 @@
               <thead>
                 <tr>
                   <th>รหัส</th>
+                  <th>เลขที่หนังสือ</th>
                   <th>หัวข้อ / หลักสูตร</th>
                   <th>หน่วยงานจัด / สถานที่</th>
+                  <th>การเดินทาง</th>
                   <th>วันที่</th>
                   <th>วัน</th>
-                  <th>ประเภท</th>
                   <th>จัดการ</th>
                 </tr>
               </thead>
@@ -540,14 +541,29 @@
   <div id="trainModal" class="modal hidden no-print">
     <div class="modal-card" style="max-width:740px;">
       <div class="modal-head">
-        <h3>บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ</h3>
+        <h3 id="trainModalTitle">บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ</h3>
         <button class="close-btn" onclick="closeModal('trainModal')">✕</button>
       </div>
       <form onsubmit="submitTrain(event)" style="padding:18px 22px;">
+        <input type="hidden" id="tId" />
         <div class="form-grid">
           <div class="form-group full">
             <label>หัวข้อ / หลักสูตร *</label>
             <input type="text" id="tTopic" required />
+          </div>
+          <div class="form-group">
+            <label>เลขที่หนังสือ</label>
+            <input type="text" id="tOrder" placeholder="เช่น สน.0033.301/..." />
+          </div>
+          <div class="form-group">
+            <label>การเดินทาง</label>
+            <select id="tTravel">
+              <option value="">-- เลือกการเดินทาง --</option>
+              <option value="เดินทางไปเอง">เดินทางไปเอง</option>
+              <option value="รถยนต์ส่วนตัว">รถยนต์ส่วนตัว</option>
+              <option value="รถโรงพยาบาล">รถโรงพยาบาล</option>
+              <option value="รถประจำทาง">รถประจำทาง</option>
+            </select>
           </div>
           <div class="form-group">
             <label>หน่วยงานที่จัด</label>

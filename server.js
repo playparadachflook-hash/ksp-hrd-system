@@ -806,6 +806,17 @@ app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
 });
 
 // ==================== TRAINING DATA ====================
+(async function ensureTrainTravelColumn() {
+  try {
+    const [cols] = await pool.query("SHOW COLUMNS FROM hrd_train_data LIKE 'train_travel'");
+    if (!cols.length) {
+      await pool.query("ALTER TABLE hrd_train_data ADD COLUMN train_travel VARCHAR(100) NULL DEFAULT '' AFTER train_order");
+    }
+  } catch (err) {
+    console.warn('ensureTrainTravelColumn skipped:', err.message);
+  }
+})();
+
 app.get('/api/trains', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page || 1));
@@ -815,8 +826,8 @@ app.get('/api/trains', async (req, res) => {
     const params = [];
     if (req.query.q && String(req.query.q).trim()) {
       const like = `%${String(req.query.q).trim()}%`;
-      where.push('(t.train_topic LIKE ? OR t.train_org LIKE ? OR t.train_place LIKE ?)');
-      params.push(like, like, like);
+      where.push('(t.train_topic LIKE ? OR t.train_org LIKE ? OR t.train_place LIKE ? OR t.train_order LIKE ?)');
+      params.push(like, like, like, like);
     }
     if (req.query.year) {
       where.push('YEAR(t.train_startdate) = ?');
@@ -899,10 +910,10 @@ app.post('/api/trains', requireAuth, async (req, res) => {
     const [result] = await pool.query(
       `INSERT INTO hrd_train_data (
         train_topic, train_org, train_place, train_startdate, train_enddate, train_sum_day,
-        train_type_id, train_about_id, train_area_id, train_budget_id, train_order,
+        train_type_id, train_about_id, train_area_id, train_budget_id, train_order, train_travel,
         train_pay_register, train_pay_apartment, train_pay_allowance, train_pay_travel, train_pay_other,
         allow_id, person_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       [
         b.train_topic,
         b.train_org || '',
@@ -915,6 +926,7 @@ app.post('/api/trains', requireAuth, async (req, res) => {
         b.train_area_id ? Number(b.train_area_id) : null,
         b.train_budget_id ? Number(b.train_budget_id) : null,
         b.train_order || '',
+        b.train_travel || '',
         Number(b.train_pay_register || 0),
         Number(b.train_pay_apartment || 0),
         Number(b.train_pay_allowance || 0),
@@ -924,6 +936,46 @@ app.post('/api/trains', requireAuth, async (req, res) => {
       ]
     );
     res.json({ ok: true, id: result.insertId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/trains/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [existing] = await pool.query('SELECT person_id FROM hrd_train_data WHERE train_data_id = ? LIMIT 1', [id]);
+    if (!existing.length) return res.status(404).json({ error: 'ไม่พบข้อมูลอบรม' });
+    if (!req.session.user.isAdmin && Number(existing[0].person_id) !== Number(req.session.user.person_id)) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลของผู้อื่น' });
+    }
+    const b = req.body;
+    const days = b.train_sum_day ? Number(b.train_sum_day) : calcLeaveDays(b.train_startdate, b.train_enddate, 1);
+    await pool.query(
+      `UPDATE hrd_train_data
+       SET train_topic = ?, train_org = ?, train_place = ?, train_startdate = ?, train_enddate = ?, train_sum_day = ?,
+           train_type_id = ?, train_area_id = ?, train_budget_id = ?, train_order = ?, train_travel = ?,
+           train_pay_register = ?, train_pay_apartment = ?, train_pay_allowance = ?
+       WHERE train_data_id = ?`,
+      [
+        b.train_topic,
+        b.train_org || '',
+        b.train_place || '',
+        b.train_startdate,
+        b.train_enddate,
+        days,
+        b.train_type_id ? Number(b.train_type_id) : null,
+        b.train_area_id ? Number(b.train_area_id) : null,
+        b.train_budget_id ? Number(b.train_budget_id) : null,
+        b.train_order || '',
+        b.train_travel || '',
+        Number(b.train_pay_register || 0),
+        Number(b.train_pay_apartment || 0),
+        Number(b.train_pay_allowance || 0),
+        id,
+      ]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -386,7 +386,8 @@ function generateTrainPdf(train, res, isDownload = false) {
   row('ด้าน / ความเกี่ยวข้อง:', train.train_about_name);
   row('พื้นที่:', train.train_area_name);
   row('แหล่งงบประมาณ:', train.train_budget_name);
-  row('เลขที่คำสั่ง:', train.train_order);
+  row('เลขที่หนังสือ:', train.train_order);
+  row('การเดินทาง:', train.train_travel);
 
   y += 10;
   doc.font('ThaiBold').fontSize(15.5).text('รายละเอียดค่าใช้จ่าย (บาท)', 48, y);

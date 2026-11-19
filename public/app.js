@@ -691,20 +691,24 @@ async function loadTrains(page = 1, mineOnly = false) {
     mine: mineOnly ? '1' : '0',
   });
   const data = await api(`/api/trains?${params.toString()}`);
-  document.getElementById('trainsTbody').innerHTML = data.items.map((t) => `
+  document.getElementById('trainsTbody').innerHTML = data.items.map((t) => {
+    const canEdit = state.user && (state.user.isAdmin || Number(t.person_id) === Number(state.user.person_id));
+    return `
     <tr>
       <td><strong>#${t.train_data_id}</strong></td>
-      <td><strong>${esc(t.train_topic)}</strong></td>
+      <td>${t.train_order ? `<code>${esc(t.train_order)}</code>` : '<span style="color:#94a3b8">-</span>'}</td>
+      <td><strong>${esc(t.train_topic)}</strong>${t.train_type_name ? `<br><small style="color:#64748b">${esc(t.train_type_name)}</small>` : ''}</td>
       <td>${esc(t.train_org || '-')}<br><small style="color:#64748b">${esc(t.train_place || '')}</small></td>
+      <td>${t.train_travel ? `<span class="badge" style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4">${esc(t.train_travel)}</span>` : '<span style="color:#94a3b8">-</span>'}</td>
       <td style="white-space:nowrap">${fmtThaiDate(t.train_startdate)} - ${fmtThaiDate(t.train_enddate)}</td>
       <td>${t.train_sum_day || '-'} วัน</td>
-      <td>${esc(t.train_type_name || '-')}</td>
       <td style="white-space:nowrap">
         ${state.user ? `<button class="btn-soft btn-sm" onclick="openPdfModal('รายงานอบรม #${t.train_data_id}', '/api/trains/${t.train_data_id}/pdf')">🖨️ PDF</button>` : '-'}
+        ${canEdit ? `<button class="btn-ghost btn-sm" onclick="editTrain(${t.train_data_id})">✏️ แก้ไข</button>` : ''}
         ${state.user?.isAdmin ? `<button class="btn-danger btn-sm" onclick="deleteTrain(${t.train_data_id})">ลบ</button>` : ''}
       </td>
-    </tr>
-  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;">ไม่พบข้อมูลอบรม</td></tr>';
+    </tr>`;
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;">ไม่พบข้อมูลอบรม</td></tr>';
 
   document.getElementById('trainsPagination').innerHTML = `
     <div>ทั้งหมด <strong>${data.total.toLocaleString()}</strong> รายการ (หน้า ${data.page} / ${data.totalPages})</div>
@@ -718,32 +722,68 @@ async function loadTrains(page = 1, mineOnly = false) {
 function openTrainModal() {
   if (!state.user) return openLoginModal();
   const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('tId').value = '';
+  document.getElementById('trainModalTitle').textContent = 'บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ';
+  document.getElementById('tTopic').value = '';
+  document.getElementById('tOrder').value = '';
+  document.getElementById('tTravel').value = '';
+  document.getElementById('tOrg').value = '';
+  document.getElementById('tPlace').value = '';
   document.getElementById('tStart').value = today;
   document.getElementById('tEnd').value = today;
+  document.getElementById('tPayReg').value = '0';
+  document.getElementById('tPayApt').value = '0';
+  document.getElementById('tPayAllow').value = '0';
+  document.getElementById('trainModal').classList.remove('hidden');
+}
+
+async function editTrain(id) {
+  if (!state.user) return openLoginModal();
+  const t = await api(`/api/trains/${id}`);
+  document.getElementById('tId').value = t.train_data_id;
+  document.getElementById('trainModalTitle').textContent = `แก้ไขข้อมูลอบรม #${t.train_data_id}`;
+  document.getElementById('tTopic').value = t.train_topic || '';
+  document.getElementById('tOrder').value = t.train_order || '';
+  document.getElementById('tTravel').value = t.train_travel || '';
+  document.getElementById('tOrg').value = t.train_org || '';
+  document.getElementById('tPlace').value = t.train_place || '';
+  document.getElementById('tStart').value = String(t.train_startdate || '').slice(0, 10);
+  document.getElementById('tEnd').value = String(t.train_enddate || '').slice(0, 10);
+  document.getElementById('tType').value = t.train_type_id || '';
+  document.getElementById('tArea').value = t.train_area_id || '';
+  document.getElementById('tBudget').value = t.train_budget_id || '';
+  document.getElementById('tPayReg').value = t.train_pay_register || 0;
+  document.getElementById('tPayApt').value = t.train_pay_apartment || 0;
+  document.getElementById('tPayAllow').value = t.train_pay_allowance || 0;
   document.getElementById('trainModal').classList.remove('hidden');
 }
 
 async function submitTrain(e) {
   e.preventDefault();
+  const id = document.getElementById('tId').value;
+  const payload = {
+    train_topic: document.getElementById('tTopic').value,
+    train_order: document.getElementById('tOrder').value,
+    train_travel: document.getElementById('tTravel').value,
+    train_org: document.getElementById('tOrg').value,
+    train_place: document.getElementById('tPlace').value,
+    train_startdate: document.getElementById('tStart').value,
+    train_enddate: document.getElementById('tEnd').value,
+    train_type_id: document.getElementById('tType').value,
+    train_area_id: document.getElementById('tArea').value,
+    train_budget_id: document.getElementById('tBudget').value,
+    train_pay_register: document.getElementById('tPayReg').value,
+    train_pay_apartment: document.getElementById('tPayApt').value,
+    train_pay_allowance: document.getElementById('tPayAllow').value,
+  };
   try {
-    await api('/api/trains', {
-      method: 'POST',
-      body: JSON.stringify({
-        train_topic: document.getElementById('tTopic').value,
-        train_org: document.getElementById('tOrg').value,
-        train_place: document.getElementById('tPlace').value,
-        train_startdate: document.getElementById('tStart').value,
-        train_enddate: document.getElementById('tEnd').value,
-        train_type_id: document.getElementById('tType').value,
-        train_area_id: document.getElementById('tArea').value,
-        train_budget_id: document.getElementById('tBudget').value,
-        train_pay_register: document.getElementById('tPayReg').value,
-        train_pay_apartment: document.getElementById('tPayApt').value,
-        train_pay_allowance: document.getElementById('tPayAllow').value,
-      }),
-    });
+    if (id) {
+      await api(`/api/trains/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/api/trains', { method: 'POST', body: JSON.stringify(payload) });
+    }
     closeModal('trainModal');
-    loadTrains(1);
+    loadTrains(state.trainPage || 1);
     loadDashboardStats();
   } catch (err) {
     alert(err.message);
