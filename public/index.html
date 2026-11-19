@@ -631,23 +631,27 @@
           </div>
           <div class="form-group">
             <label>ค่าลงทะเบียน (บาท)</label>
-            <input type="number" step="0.01" id="tPayReg" value="0" />
+            <input type="number" step="0.01" id="tPayReg" value="0" oninput="recalcTrainTotalCost()" />
           </div>
           <div class="form-group">
             <label>ค่าที่พัก (บาท)</label>
-            <input type="number" step="0.01" id="tPayApt" value="0" />
+            <input type="number" step="0.01" id="tPayApt" value="0" oninput="recalcTrainTotalCost()" />
           </div>
           <div class="form-group">
             <label>ค่าเบี้ยเลี้ยง (บาท)</label>
-            <input type="number" step="0.01" id="tPayAllow" value="0" />
+            <input type="number" step="0.01" id="tPayAllow" value="0" oninput="recalcTrainTotalCost()" />
           </div>
           <div class="form-group">
             <label>ค่าพาหนะ (บาท)</label>
-            <input type="number" step="0.01" id="tPayTravel" value="0" />
+            <input type="number" step="0.01" id="tPayTravel" value="0" oninput="recalcTrainTotalCost()" />
           </div>
           <div class="form-group">
             <label>ระยะทางไป-กลับ (กิโลเมตร)</label>
-            <input type="number" step="0.1" min="0" id="tDistanceKm" value="0" placeholder="เช่น 65" />
+            <input type="number" step="0.1" min="0" id="tDistanceKm" value="0" placeholder="เช่น 65" oninput="onTrainDistanceInput()" />
+          </div>
+          <div class="form-group">
+            <label>รวมค่าใช้จ่ายทั้งหมด (บาท)</label>
+            <input type="text" id="tTotalCost" readonly value="0.00" style="background:#f0fdfa;font-weight:700;color:#0f766e;border-color:#5eead4;" />
           </div>
           <div class="form-group full">
             <label>รูปภาพประกอบการอบรม / ไปราชการ (จำกัด 1 รูปต่อการอบรม)</label>

@@ -744,6 +744,7 @@ function openTrainModal() {
   document.getElementById('tImageFile').value = '';
   document.getElementById('tImagePreview').src = '';
   document.getElementById('tImagePreviewWrap').classList.add('hidden');
+  recalcTrainTotalCost();
   document.getElementById('trainModal').classList.remove('hidden');
 }
 
@@ -791,6 +792,31 @@ async function openTrainImageModal(id) {
   }
 }
 
+function recalcTrainTotalCost() {
+  const num = (id) => {
+    const v = Number(document.getElementById(id)?.value || 0);
+    return Number.isFinite(v) ? v : 0;
+  };
+  const total = num('tPayReg') + num('tPayApt') + num('tPayAllow') + num('tPayTravel');
+  const el = document.getElementById('tTotalCost');
+  if (el) {
+    el.value = total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+}
+
+function onTrainDistanceInput() {
+  const mode = document.getElementById('tTravel').value;
+  if (mode === 'รถยนต์ส่วนตัว') {
+    const provId = Number(document.getElementById('tProvince').value || 0);
+    const rates = state.master?.travelRates || [];
+    const rate = provId ? rates.find((r) => Number(r.province_id) === provId) : null;
+    const perKm = rate ? Number(rate.private_car_rate || 4) : 4;
+    const dist = Number(document.getElementById('tDistanceKm').value || 0);
+    document.getElementById('tPayTravel').value = dist > 0 ? String(Math.round(dist * perKm * 100) / 100) : '0';
+  }
+  recalcTrainTotalCost();
+}
+
 function onTrainTravelAutoCalc() {
   const provId = Number(document.getElementById('tProvince').value || 0);
   const mode = document.getElementById('tTravel').value;
@@ -812,6 +838,7 @@ function onTrainTravelAutoCalc() {
   } else if (mode === 'รถโรงพยาบาล' || mode === 'เดินทางไปเอง') {
     document.getElementById('tPayTravel').value = '0';
   }
+  recalcTrainTotalCost();
 }
 
 async function editTrain(id) {
@@ -845,6 +872,7 @@ async function editTrain(id) {
     document.getElementById('tImagePreview').src = '';
     document.getElementById('tImagePreviewWrap').classList.add('hidden');
   }
+  recalcTrainTotalCost();
   document.getElementById('trainModal').classList.remove('hidden');
 }
 
