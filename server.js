@@ -243,6 +243,7 @@ app.get('/api/master', async (req, res) => {
       [trainBudgets],
       [persons],
       [personTypes],
+      [travelRates],
     ] = await Promise.all([
       pool.query('SELECT hrd_leave_type_id, hrd_leave_type_name, graph_color FROM hrd_leave_type ORDER BY hrd_leave_type_id'),
       pool.query('SELECT leave_day_type_id, leave_day_type_name, leave_day FROM hrd_leave_day_type ORDER BY leave_day_type_id'),
@@ -263,6 +264,7 @@ app.get('/api/master', async (req, res) => {
          ORDER BY p.fname, p.lname`
       ),
       pool.query('SELECT person_type_id, person_type_name FROM hrd_person_type ORDER BY person_type_id'),
+      pool.query('SELECT id, province_id, province_name_th, distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare FROM hrd_travel_rates ORDER BY province_name_th').catch(() => [[]]),
     ]);
     res.json({
       leaveTypes,
@@ -277,6 +279,7 @@ app.get('/api/master', async (req, res) => {
       trainBudgets,
       persons,
       personTypes,
+      travelRates,
     });
   } catch (err) {
     console.error('Master error:', err);
@@ -959,15 +962,16 @@ app.post('/api/trains', requireAuth, async (req, res) => {
     const days = b.train_sum_day ? Number(b.train_sum_day) : calcLeaveDays(b.train_startdate, b.train_enddate, 1);
     const [result] = await pool.query(
       `INSERT INTO hrd_train_data (
-        train_topic, train_org, train_place, train_startdate, train_enddate, train_sum_day,
+        train_topic, train_org, train_place, province_id, train_startdate, train_enddate, train_sum_day,
         train_type_id, train_about_id, train_area_id, train_budget_id, train_order, train_travel, train_distance_km,
         train_pay_register, train_pay_apartment, train_pay_allowance, train_pay_travel, train_pay_other,
         allow_id, person_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
       [
         b.train_topic,
         b.train_org || '',
         b.train_place || '',
+        b.province_id ? Number(b.province_id) : null,
         b.train_startdate,
         b.train_enddate,
         days,
@@ -1005,7 +1009,7 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
     const days = b.train_sum_day ? Number(b.train_sum_day) : calcLeaveDays(b.train_startdate, b.train_enddate, 1);
     await pool.query(
       `UPDATE hrd_train_data
-       SET train_topic = ?, train_org = ?, train_place = ?, train_startdate = ?, train_enddate = ?, train_sum_day = ?,
+       SET train_topic = ?, train_org = ?, train_place = ?, province_id = ?, train_startdate = ?, train_enddate = ?, train_sum_day = ?,
            train_type_id = ?, train_area_id = ?, train_budget_id = ?, train_order = ?, train_travel = ?, train_distance_km = ?,
            train_pay_register = ?, train_pay_apartment = ?, train_pay_allowance = ?, train_pay_travel = ?
        WHERE train_data_id = ?`,
@@ -1013,6 +1017,7 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
         b.train_topic,
         b.train_org || '',
         b.train_place || '',
+        b.province_id ? Number(b.province_id) : null,
         b.train_startdate,
         b.train_enddate,
         days,
@@ -1359,6 +1364,46 @@ app.put('/api/persons/:id', requireAdmin, async (req, res) => {
         [Number(user_groups_id || 3), Number(leave_accumulate || 0), Number(req.params.id)]
       );
     }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== TRAVEL RATES (ADMIN) ====================
+app.get('/api/travel-rates', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const where = q ? 'WHERE province_name_th LIKE ?' : '';
+    const params = q ? [`%${q}%`] : [];
+    const [rows] = await pool.query(
+      `SELECT id, origin_province, province_id, province_name_th,
+              distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare, updated_at
+       FROM hrd_travel_rates ${where} ORDER BY province_name_th`,
+      params
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/travel-rates/:id', requireAdmin, async (req, res) => {
+  try {
+    const { distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare } = req.body;
+    await pool.query(
+      `UPDATE hrd_travel_rates
+       SET distance_roundtrip_km = ?, private_car_rate = ?, bus_fare = ?, flight_fare = ?, train_fare = ?
+       WHERE id = ?`,
+      [
+        Number(distance_roundtrip_km || 0),
+        Number(private_car_rate ?? 4),
+        Number(bus_fare || 0),
+        Number(flight_fare || 0),
+        Number(train_fare || 0),
+        Number(req.params.id),
+      ]
+    );
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

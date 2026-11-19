@@ -338,6 +338,7 @@
           <button class="seg-btn active" onclick="switchAdminPane('approve', this)">✅ อนุมัติใบลาทั้งหมด</button>
           <button class="seg-btn" onclick="switchAdminPane('calendar', this)">🗓️ ปฏิทินลาทั้ง รพ.</button>
           <button class="seg-btn" onclick="switchAdminPane('persons', this)">👥 จัดการบุคลากร &amp; วันลาสะสม</button>
+          <button class="seg-btn" onclick="switchAdminPane('travelRates', this)">🚗 อัตราค่าเดินทาง (สกลนคร)</button>
           <button class="seg-btn" onclick="switchAdminPane('update', this)">🔄 ระบบ Auto Update</button>
         </div>
 
@@ -437,6 +438,35 @@
                 </tr>
               </thead>
               <tbody id="personsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="adminPane-travelRates" class="glass-panel hidden">
+          <div class="panel-head" style="margin-bottom:10px;">
+            <div>
+              <h2 style="margin:0;">🚗 อัตราค่าเดินทางกลาง (ต้นทาง: จ.สกลนคร → ทุกจังหวัด)</h2>
+              <p style="margin:4px 0 0;font-size:12.5px;color:#64748b;">กำหนดระยะทางไป-กลับ (กม.) เรทค่าเดินทางรถส่วนตัว (บาท/กม.) รถโดยสาร เครื่องบิน และรถไฟ (ตาราง <code>hrd_travel_rates</code>)</p>
+            </div>
+          </div>
+          <div class="filter-bar" style="margin-bottom:14px;">
+            <input type="text" id="trSearchQ" placeholder="ค้นหาจังหวัดปลายทาง..." onkeydown="if(event.key==='Enter')loadTravelRates()" />
+            <button class="btn-soft" onclick="loadTravelRates()">ค้นหา</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>จังหวัดปลายทาง</th>
+                  <th style="width:130px;">ระยะทางไป-กลับ (กม.)</th>
+                  <th style="width:130px;">รถส่วนตัว (บาท/กม.)</th>
+                  <th style="width:130px;">รถโดยสาร (บาท)</th>
+                  <th style="width:130px;">เครื่องบิน (บาท)</th>
+                  <th style="width:130px;">รถไฟ (บาท)</th>
+                  <th style="width:110px;text-align:center;">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="travelRatesTbody"></tbody>
             </table>
           </div>
         </div>
@@ -556,13 +586,19 @@
             <input type="text" id="tOrder" placeholder="เช่น สน.0033.301/..." />
           </div>
           <div class="form-group">
+            <label>จังหวัดปลายทาง (คำนวณค่ารถอัตโนมัติ)</label>
+            <select id="tProvince" onchange="onTrainTravelAutoCalc()"><option value="">-- เลือกจังหวัดปลายทาง --</option></select>
+          </div>
+          <div class="form-group">
             <label>การเดินทาง</label>
-            <select id="tTravel">
+            <select id="tTravel" onchange="onTrainTravelAutoCalc()">
               <option value="">-- เลือกการเดินทาง --</option>
               <option value="เดินทางไปเอง">เดินทางไปเอง</option>
               <option value="รถยนต์ส่วนตัว">รถยนต์ส่วนตัว</option>
               <option value="รถโรงพยาบาล">รถโรงพยาบาล</option>
-              <option value="รถประจำทาง">รถประจำทาง</option>
+              <option value="รถประจำทาง">รถประจำทาง / รถโดยสาร</option>
+              <option value="เครื่องบิน">เครื่องบิน</option>
+              <option value="รถไฟ">รถไฟ</option>
             </select>
           </div>
           <div class="form-group">

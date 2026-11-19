@@ -121,6 +121,7 @@ async function loadMaster() {
   fill('adminCalType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('personDeptFilter', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
   if (m.personTypes) fill('personTypeFilter', m.personTypes, 'person_type_id', 'person_type_name', 'ทุกประเภทบุคลากร');
+  if (m.travelRates) fill('tProvince', m.travelRates, 'province_id', 'province_name_th', '-- เลือกจังหวัดปลายทาง --');
   fill('fTypeId', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name');
   fill('fDayType', m.dayTypes, 'leave_day_type_id', 'leave_day_type_name');
   fill('fAssignedId', m.persons, 'person_id', 'full_name', '-- ไม่ระบุ --');
@@ -727,6 +728,7 @@ function openTrainModal() {
   document.getElementById('trainModalTitle').textContent = 'บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ';
   document.getElementById('tTopic').value = '';
   document.getElementById('tOrder').value = '';
+  document.getElementById('tProvince').value = '';
   document.getElementById('tTravel').value = '';
   document.getElementById('tOrg').value = '';
   document.getElementById('tPlace').value = '';
@@ -789,6 +791,29 @@ async function openTrainImageModal(id) {
   }
 }
 
+function onTrainTravelAutoCalc() {
+  const provId = Number(document.getElementById('tProvince').value || 0);
+  const mode = document.getElementById('tTravel').value;
+  const rates = state.master?.travelRates || [];
+  const rate = provId ? rates.find((r) => Number(r.province_id) === provId) : null;
+  if (rate && Number(rate.distance_roundtrip_km || 0) > 0) {
+    document.getElementById('tDistanceKm').value = Number(rate.distance_roundtrip_km);
+  }
+  const dist = Number(document.getElementById('tDistanceKm').value || 0);
+  if (mode === 'รถยนต์ส่วนตัว') {
+    const perKm = rate ? Number(rate.private_car_rate || 4) : 4;
+    if (dist > 0) document.getElementById('tPayTravel').value = String(Math.round(dist * perKm * 100) / 100);
+  } else if (mode === 'รถประจำทาง' || mode === 'รถโดยสาร') {
+    if (rate && Number(rate.bus_fare || 0) > 0) document.getElementById('tPayTravel').value = String(Number(rate.bus_fare));
+  } else if (mode === 'เครื่องบิน') {
+    if (rate && Number(rate.flight_fare || 0) > 0) document.getElementById('tPayTravel').value = String(Number(rate.flight_fare));
+  } else if (mode === 'รถไฟ') {
+    if (rate && Number(rate.train_fare || 0) > 0) document.getElementById('tPayTravel').value = String(Number(rate.train_fare));
+  } else if (mode === 'รถโรงพยาบาล' || mode === 'เดินทางไปเอง') {
+    document.getElementById('tPayTravel').value = '0';
+  }
+}
+
 async function editTrain(id) {
   if (!state.user) return openLoginModal();
   const t = await api(`/api/trains/${id}`);
@@ -796,6 +821,7 @@ async function editTrain(id) {
   document.getElementById('trainModalTitle').textContent = `แก้ไขข้อมูลอบรม #${t.train_data_id}`;
   document.getElementById('tTopic').value = t.train_topic || '';
   document.getElementById('tOrder').value = t.train_order || '';
+  document.getElementById('tProvince').value = t.province_id || '';
   document.getElementById('tTravel').value = t.train_travel || '';
   document.getElementById('tOrg').value = t.train_org || '';
   document.getElementById('tPlace').value = t.train_place || '';
@@ -828,6 +854,7 @@ async function submitTrain(e) {
   const payload = {
     train_topic: document.getElementById('tTopic').value,
     train_order: document.getElementById('tOrder').value,
+    province_id: document.getElementById('tProvince').value,
     train_travel: document.getElementById('tTravel').value,
     train_org: document.getElementById('tOrg').value,
     train_place: document.getElementById('tPlace').value,
@@ -1013,13 +1040,57 @@ async function loadReports() {
 function switchAdminPane(pane, btn) {
   document.querySelectorAll('.admin-subtabs .seg-btn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
-  ['approve', 'calendar', 'persons', 'update'].forEach((p) => {
+  ['approve', 'calendar', 'persons', 'travelRates', 'update'].forEach((p) => {
     document.getElementById(`adminPane-${p}`).classList.toggle('hidden', p !== pane);
   });
   if (pane === 'approve') loadAdminLeaves(1);
   if (pane === 'calendar') loadAdminCalendar();
   if (pane === 'persons') loadPersons();
+  if (pane === 'travelRates') loadTravelRates();
   if (pane === 'update') checkSystemUpdate();
+}
+
+async function loadTravelRates() {
+  const q = document.getElementById('trSearchQ')?.value || '';
+  const data = await api(`/api/travel-rates?q=${encodeURIComponent(q)}`);
+  const items = data.items || [];
+  document.getElementById('travelRatesTbody').innerHTML = items.map((r) => `
+    <tr>
+      <td><strong>${esc(r.province_name_th)}</strong></td>
+      <td><input type="number" step="0.1" min="0" id="trDist_${r.id}" class="table-input table-input-num" value="${Number(r.distance_roundtrip_km || 0)}" /></td>
+      <td><input type="number" step="0.25" min="0" id="trCar_${r.id}" class="table-input table-input-num" value="${Number(r.private_car_rate ?? 4)}" /></td>
+      <td><input type="number" step="1" min="0" id="trBus_${r.id}" class="table-input table-input-num" value="${Number(r.bus_fare || 0)}" /></td>
+      <td><input type="number" step="1" min="0" id="trFlight_${r.id}" class="table-input table-input-num" value="${Number(r.flight_fare || 0)}" /></td>
+      <td><input type="number" step="1" min="0" id="trTrain_${r.id}" class="table-input table-input-num" value="${Number(r.train_fare || 0)}" /></td>
+      <td style="text-align:center;">
+        <button class="btn-save-row" onclick="saveTravelRate(${r.id}, this)">💾 บันทึก</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:24px;color:#64748b;">ไม่พบข้อมูลจังหวัด</td></tr>';
+}
+
+async function saveTravelRate(id, btn) {
+  await api(`/api/travel-rates/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      distance_roundtrip_km: document.getElementById(`trDist_${id}`).value,
+      private_car_rate: document.getElementById(`trCar_${id}`).value,
+      bus_fare: document.getElementById(`trBus_${id}`).value,
+      flight_fare: document.getElementById(`trFlight_${id}`).value,
+      train_fare: document.getElementById(`trTrain_${id}`).value,
+    }),
+  });
+  const fresh = await api('/api/travel-rates');
+  if (state.master) state.master.travelRates = fresh.items || [];
+  if (btn) {
+    const oldText = btn.textContent;
+    btn.textContent = '✓ บันทึกแล้ว';
+    btn.classList.add('saved');
+    setTimeout(() => {
+      btn.textContent = oldText;
+      btn.classList.remove('saved');
+    }, 1800);
+  }
 }
 
 function changeAdminCalMonth(delta) {
