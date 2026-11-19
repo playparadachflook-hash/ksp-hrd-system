@@ -218,7 +218,7 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
     y += 22;
     doc.text(`สังกัด   ${deptFull}  โรงพยาบาลโคกศรีสุพรรณ`, 48, y);
     y += 24;
-    doc.text(`ขอแจ้งยกเลิกวันลาตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 490 });
+    doc.text(`ขอแจ้งยกเลิกวันลาตั้งแต่  ${startStr}  ถึง  ${endStr}   มีกำหนด   ${daysText}   วัน`, 68, y, { width: 490 });
     y += 24;
     doc.text(`เนื่องจาก   ${(leave.leave_because_cancel || leave.leave_because || '-').trim()}`, 48, y, { width: 495 });
 
@@ -269,7 +269,7 @@ function generateLeavePdf(leave, stats, res, isDownload = false) {
   doc.text(![1, 2, 4].includes(typeId) ? `คลอดบุตร   (อื่นๆ: ${typeTitle})` : 'คลอดบุตร', 112, y);
 
   y += 26;
-  doc.text(`ตั้งแต่วันที่  ${startStr}  ถึง  ${endStr}       มีกำหนด  ${daysText}  วัน`, 48, y, { width: 505 });
+  doc.text(`ตั้งแต่  ${startStr}  ถึง  ${endStr}       มีกำหนด  ${daysText}  วัน`, 48, y, { width: 505 });
 
   // Previous leave line ("ข้าพเจ้าได้ลา...")
   y += 24;

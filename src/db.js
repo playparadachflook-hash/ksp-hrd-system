@@ -14,6 +14,12 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
+if (pool.pool) {
+  pool.pool.on('connection', (conn) => {
+    conn.query('SET NAMES utf8mb4');
+  });
+}
+
 function md5(text) {
   return crypto.createHash('md5').update(String(text || ''), 'utf8').digest('hex');
 }
