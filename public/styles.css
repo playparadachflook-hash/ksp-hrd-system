@@ -408,7 +408,28 @@ th { background: #f8fafc; font-weight: 600; color: #475569; white-space: nowrap;
 .badge-1 { background: #fef3c7; color: #92400e; }
 .badge-2 { background: #dcfce7; color: #166534; }
 .badge-3 { background: #fee2e2; color: #991b1b; }
-.badge-9 { background: #e2e8f0; color: #475569; }
+.badge-9 { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+tr.row-cancelled {
+  background: #fef2f2 !important;
+}
+tr.row-cancelled td {
+  color: #b91c1c !important;
+}
+tr.row-cancelled td small,
+tr.row-cancelled td strong {
+  color: #b91c1c !important;
+}
+.cal-chip.is-cancelled {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-left-color: #dc2626 !important;
+  text-decoration: line-through;
+}
+.day-leave-item.is-cancelled {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  border-left-color: #dc2626 !important;
+}
 .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 13px; color: var(--muted); }
 
 /* ==================== FORMS ==================== */

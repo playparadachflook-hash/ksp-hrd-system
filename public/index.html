@@ -31,7 +31,7 @@
           <span class="nav-ico">🗓️</span><span>ปฏิทิน &amp; รายการลา</span>
         </button>
         <button class="nav-pill" onclick="openLeaveFormModal()">
-          <span class="nav-ico">✍️</span><span>ยื่นใบลา / ยกเลิกวันลา</span>
+          <span class="nav-ico">✍️</span><span>ยื่นใบลาออนไลน์</span>
         </button>
         <button class="nav-pill" data-tab="reports" onclick="switchTab('reports')">
           <span class="nav-ico">📊</span><span>รายงาน &amp; สถิติ</span>
@@ -128,7 +128,7 @@
               <option value="1">รออนุมัติ</option>
               <option value="2">อนุญาต</option>
               <option value="3">ไม่อนุญาต</option>
-              <option value="9">ยกเลิกวันลา</option>
+              <option value="9">ยกเลิกใบลา</option>
             </select>
             <button class="btn-soft" onclick="applyFilters()">ค้นหา</button>
             <button class="btn-ghost" onclick="resetFilters()">รีเซ็ต</button>
@@ -353,7 +353,7 @@
               <option value="">ทุกสถานะ</option>
               <option value="2">อนุญาตแล้ว</option>
               <option value="3">ไม่อนุญาต</option>
-              <option value="9">ยกเลิกวันลา</option>
+              <option value="9">ยกเลิกใบลา</option>
             </select>
             <select id="adminFilterDept" onchange="loadAdminLeaves(1)"><option value="">ทุกกลุ่มงาน</option></select>
             <select id="adminFilterType" onchange="loadAdminLeaves(1)"><option value="">ทุกประเภทการลา</option></select>

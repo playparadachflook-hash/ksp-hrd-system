@@ -379,7 +379,8 @@ app.get('/api/leaves/stats', async (req, res) => {
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN allow_id = 1 THEN 1 ELSE 0 END) AS pending,
               SUM(CASE WHEN allow_id = 2 THEN 1 ELSE 0 END) AS approved,
-              SUM(CASE WHEN allow_id = 3 THEN 1 ELSE 0 END) AS rejected
+              SUM(CASE WHEN allow_id = 3 THEN 1 ELSE 0 END) AS rejected,
+              SUM(CASE WHEN allow_id = 9 THEN 1 ELSE 0 END) AS cancelled
        FROM hrd_leave_data
        WHERE leave_startdate BETWEEN ? AND ? ${uid !== null ? 'AND person_id = ?' : ''}`,
       uid !== null ? [fyStart, fyEnd, uid] : [fyStart, fyEnd]
@@ -390,7 +391,9 @@ app.get('/api/leaves/stats', async (req, res) => {
        LEFT JOIN hrd_leave_data l
          ON l.hrd_leave_type_id = lt.hrd_leave_type_id
         AND l.leave_startdate BETWEEN ? AND ?
+        AND l.allow_id IN (1, 2)
         ${uid !== null ? 'AND l.person_id = ?' : ''}
+       WHERE lt.hrd_leave_type_id != 12
        GROUP BY lt.hrd_leave_type_id, lt.hrd_leave_type_name, lt.graph_color
        ORDER BY cnt DESC`,
       uid !== null ? [fyStart, fyEnd, uid] : [fyStart, fyEnd]
@@ -796,6 +799,29 @@ app.patch('/api/leaves/:id/approve', requireAdmin, async (req, res) => {
       [Number(allow_id || 2), req.session.user.person_id, leave_check_doc === 'Y' ? 'Y' : 'N', id]
     );
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/leaves/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [rows] = await pool.query('SELECT hrd_leave_id, person_id, allow_id, leave_because_cancel FROM hrd_leave_data WHERE hrd_leave_id = ? LIMIT 1', [id]);
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลใบลา' });
+    const leave = rows[0];
+    const isOwner = Number(leave.person_id) === Number(req.session.user.person_id);
+    if (!req.session.user.isAdmin && !isOwner) {
+      return res.status(403).json({ error: 'ไม่มีสิทธิ์ยกเลิกใบลาของผู้อื่น' });
+    }
+    const reason = String(req.body?.reason || '').trim() || leave.leave_because_cancel || 'ยกเลิกใบลา';
+    await pool.query(
+      `UPDATE hrd_leave_data
+       SET allow_id = 9, leave_because_cancel = ?
+       WHERE hrd_leave_id = ?`,
+      [reason, id]
+    );
+    res.json({ ok: true, id, allow_id: 9 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

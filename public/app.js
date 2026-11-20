@@ -114,11 +114,11 @@ async function loadMaster() {
       items.map((x) => `<option value="${x[valKey]}">${esc(x[labelKey])}</option>`).join('');
   };
 
-  fill('filterType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
+  fill('filterType', m.leaveTypes.filter((x) => Number(x.hrd_leave_type_id) !== 12), 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('adminFilterDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
-  fill('adminFilterType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
+  fill('adminFilterType', m.leaveTypes.filter((x) => Number(x.hrd_leave_type_id) !== 12), 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('adminCalDept', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
-  fill('adminCalType', m.leaveTypes, 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
+  fill('adminCalType', m.leaveTypes.filter((x) => Number(x.hrd_leave_type_id) !== 12), 'hrd_leave_type_id', 'hrd_leave_type_name', 'ทุกประเภทการลา');
   fill('personDeptFilter', m.departments, 'department_id', 'department_name', 'ทุกกลุ่มงาน');
   if (m.personTypes) fill('personTypeFilter', m.personTypes, 'person_type_id', 'person_type_name', 'ทุกประเภทบุคลากร');
   if (m.travelRates) fill('tProvince', m.travelRates, 'province_id', 'province_name_th', '-- เลือกจังหวัดปลายทาง --');
@@ -293,14 +293,18 @@ function renderCalendarGrid(gridId, items, year, month, source) {
       ? `onclick="openDayLeavesModal('${iso}', '${source}')"`
       : (dayItems.length === 1 ? `onclick="openLeaveDetail(${dayItems[0].hrd_leave_id})"` : '');
 
-    const chips = dayItems.slice(0, 2).map((r) => `
-      <div class="cal-chip" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
-           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}"
+    const chips = dayItems.slice(0, 2).map((r) => {
+      const isCancelled = Number(r.allow_id) === 9;
+      const chipColor = isCancelled ? '#dc2626' : (r.graph_color || '#0d9488');
+      return `
+      <div class="cal-chip ${isCancelled ? 'is-cancelled' : ''}" style="border-left-color:${esc(chipColor)}"
+           title="${esc(r.full_name)} - ${esc(r.hrd_leave_type_name)}${isCancelled ? ' (ยกเลิกใบลา)' : ''}"
            onclick="event.stopPropagation();openLeaveDetail(${r.hrd_leave_id})">
-        <span style="width:7px;height:7px;border-radius:50%;background:${esc(r.graph_color || '#0d9488')};flex-shrink:0;"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:${esc(chipColor)};flex-shrink:0;"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;">${esc(r.full_name)}</span>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     const more = hasMulti
       ? `<div class="cal-more-pill" onclick="event.stopPropagation();openDayLeavesModal('${iso}', '${source}')">👥 ดูทั้งหมด ${dayItems.length} คน</div>`
@@ -346,25 +350,28 @@ function renderDayLeavesList(items) {
     return;
   }
   body.innerHTML = items.map((r) => {
+    const isCancelled = Number(r.allow_id) === 9;
+    const itemColor = isCancelled ? '#dc2626' : (r.graph_color || '#0d9488');
+    const statusText = isCancelled ? 'ยกเลิกใบลา' : (r.allow_name || 'รออนุมัติ');
     const initial = (String(r.full_name || '').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.)\s*/i, '').trim()[0] || '?');
     const dateTxt = String(r.leave_startdate).slice(0, 10) === String(r.leave_enddate).slice(0, 10)
       ? fmtThaiDate(r.leave_startdate)
       : `${fmtThaiDate(r.leave_startdate)} - ${fmtThaiDate(r.leave_enddate)}`;
     return `
-      <div class="day-leave-item" style="border-left-color:${esc(r.graph_color || '#0d9488')}"
+      <div class="day-leave-item ${isCancelled ? 'is-cancelled' : ''}" style="border-left-color:${esc(itemColor)}"
            onclick="closeModal('dayLeavesModal');openLeaveDetail(${r.hrd_leave_id})">
         <div class="day-leave-left">
-          <div class="person-avatar" style="background:${esc(r.graph_color || '#0d9488')}">${esc(initial)}</div>
+          <div class="person-avatar" style="background:${esc(itemColor)}">${esc(initial)}</div>
           <div style="min-width:0;">
-            <div style="font-weight:700;color:#0f172a;font-size:14.5px;">${esc(r.full_name)}</div>
-            <div style="font-size:12px;color:#64748b;margin-top:2px;">
+            <div style="font-weight:700;color:${isCancelled ? '#b91c1c' : '#0f172a'};font-size:14.5px;">${esc(r.full_name)}</div>
+            <div style="font-size:12px;color:${isCancelled ? '#dc2626' : '#64748b'};margin-top:2px;">
               ${esc(r.department_name || '-')} • ${dateTxt} (${r.calc_days || 1} วัน)
             </div>
           </div>
         </div>
         <div class="day-leave-right">
-          <span class="badge" style="background:#f1f5f9;border-left:3px solid ${esc(r.graph_color || '#0d9488')}">${esc(r.hrd_leave_type_name)}</span>
-          <span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name || 'รออนุมัติ')}</span>
+          <span class="badge" style="background:${isCancelled ? '#fee2e2' : '#f1f5f9'};color:${isCancelled ? '#b91c1c' : 'inherit'};border-left:3px solid ${esc(itemColor)}">${esc(r.hrd_leave_type_name)}</span>
+          <span class="badge badge-${r.allow_id || 1}">${esc(statusText)}</span>
         </div>
       </div>
     `;
@@ -428,24 +435,27 @@ async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:24px;">ไม่พบรายการใบลา</td></tr>';
   } else {
     tbody.innerHTML = data.items.map((r) => {
+      const isCancelled = Number(r.allow_id) === 9;
+      const statusText = isCancelled ? 'ยกเลิกใบลา' : (r.allow_name || 'รออนุมัติ');
       const canPrint = state.user && (state.user.isAdmin || Number(r.person_id) === Number(state.user.person_id));
-      const canCancel = canPrint && Number(r.allow_id) === 2 && Number(r.hrd_leave_type_id) !== 12;
+      const canCancel = canPrint && [1, 2].includes(Number(r.allow_id)) && Number(r.hrd_leave_type_id) !== 12;
       const dateTxt = r.leave_startdate === r.leave_enddate
         ? fmtThaiDate(r.leave_startdate)
         : `${fmtThaiDate(r.leave_startdate)} - ${fmtThaiDate(r.leave_enddate)}`;
+      const typeColor = isCancelled ? '#dc2626' : (r.graph_color || '#0d9488');
       return `
-        <tr>
+        <tr class="${isCancelled ? 'row-cancelled' : ''}">
           <td><strong>#${r.hrd_leave_id}</strong></td>
           <td>${esc(r.full_name || '-')}</td>
           <td><small>${esc(r.department_name || '-')}</small></td>
-          <td><span class="badge" style="background:#f1f5f9;border-left:3px solid ${esc(r.graph_color || '#0d9488')}">${esc(r.hrd_leave_type_name)}</span></td>
+          <td><span class="badge" style="background:${isCancelled ? '#fee2e2' : '#f1f5f9'};color:${isCancelled ? '#b91c1c' : 'inherit'};border-left:3px solid ${esc(typeColor)}">${esc(r.hrd_leave_type_name)}</span></td>
           <td style="white-space:nowrap">${dateTxt}</td>
           <td>${r.calc_days} วัน</td>
-          <td><span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name || 'รออนุมัติ')}</span></td>
+          <td><span class="badge badge-${r.allow_id || 1}">${esc(statusText)}</span></td>
           <td style="white-space:nowrap">
             <button class="btn-soft btn-sm" onclick="openLeaveDetail(${r.hrd_leave_id})">ดูรายละเอียด</button>
             ${canPrint ? `<button class="btn-aurora btn-sm" onclick="openPdfModal('แบบฟอร์มใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ PDF</button>` : ''}
-            ${canCancel ? `<button class="btn-ghost btn-sm" onclick="requestCancelLeave(${r.hrd_leave_id})" title="ขอยกเลิกวันลาที่อนุมัติแล้ว">🔄 ขอยกเลิก</button>` : ''}
+            ${canCancel ? `<button class="btn-danger btn-sm" onclick="requestCancelLeave(${r.hrd_leave_id})" title="ยกเลิกใบลาเดิมนี้และคืนวันลา">✕ ยกเลิกใบลา</button>` : ''}
           </td>
         </tr>
       `;
@@ -464,15 +474,17 @@ async function loadLeaves(page = 1, exactDate = '', forceMine = false) {
 async function openLeaveDetail(id) {
   const { leave: r, stats } = await api(`/api/leaves/${id}`);
   const fullName = `${r.prename_name || ''}${r.fname || ''} ${r.lname || ''}`.trim();
+  const isCancelled = Number(r.allow_id) === 9;
+  const statusText = isCancelled ? 'ยกเลิกใบลา' : (r.allow_name || 'รออนุมัติ');
   const canPrint = state.user && (state.user.isAdmin || Number(r.person_id) === Number(state.user.person_id));
   const canEdit = canPrint && (state.user.isAdmin || Number(r.allow_id) === 1);
-  const canCancel = canPrint && Number(r.allow_id) === 2 && Number(r.hrd_leave_type_id) !== 12;
+  const canCancel = canPrint && [1, 2].includes(Number(r.allow_id)) && Number(r.hrd_leave_type_id) !== 12;
 
   document.getElementById('ldTitle').textContent = `รายละเอียดใบลา #${r.hrd_leave_id} • ${r.hrd_leave_type_name}`;
   document.getElementById('ldBody').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;font-size:14px;">
       <div><strong>ผู้ขอลา:</strong> ${esc(fullName)}</div>
-      <div><strong>สถานะ:</strong> <span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name)}</span></div>
+      <div><strong>สถานะ:</strong> <span class="badge badge-${r.allow_id || 1}">${esc(statusText)}</span></div>
       <div><strong>ตำแหน่ง:</strong> ${esc(r.position_name || '-')}</div>
       <div><strong>สังกัด:</strong> ${esc(r.department_name || '-')} / ${esc(r.department_sub_name || '-')}</div>
       <div><strong>ตั้งแต่วันที่:</strong> ${fmtThaiDate(r.leave_startdate)}</div>
@@ -487,7 +499,7 @@ async function openLeaveDetail(id) {
   actions.innerHTML = `
     ${canPrint ? `<button class="btn-aurora" onclick="closeModal('leaveDetailModal');openPdfModal('แบบฟอร์มใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ พิมพ์แบบฟอร์ม PDF เดิม</button>` : ''}
     ${canEdit ? `<button class="btn-soft" onclick="closeModal('leaveDetailModal');editLeave(${r.hrd_leave_id})">✏️ แก้ไข</button>` : ''}
-    ${canCancel ? `<button class="btn-soft" onclick="closeModal('leaveDetailModal');requestCancelLeave(${r.hrd_leave_id})">🔄 ขอยกเลิกใบลานี้</button>` : ''}
+    ${canCancel ? `<button class="btn-danger" onclick="closeModal('leaveDetailModal');requestCancelLeave(${r.hrd_leave_id})">✕ ยกเลิกใบลานี้</button>` : ''}
     <button class="btn-ghost" onclick="closeModal('leaveDetailModal')">ปิด</button>
   `;
   document.getElementById('leaveDetailModal').classList.remove('hidden');
@@ -525,12 +537,11 @@ function onLeavePersonChange() {
 function populateLeaveTypeSelect(selectedVal = '') {
   const el = document.getElementById('fTypeId');
   if (!el || !state.master?.leaveTypes) return;
-  let types = state.master.leaveTypes;
-  // Filter by logged-in user's person_type_id entitlements (non-admin), always keeping 7 (ตรวจเลือก) & 12 (ยกเลิกการลา)
+  let types = state.master.leaveTypes.filter((t) => Number(t.hrd_leave_type_id) !== 12);
+  // Filter by logged-in user's person_type_id entitlements (non-admin), always keeping 7 (ตรวจเลือก)
   if (state.user && !state.user.isAdmin && state.myEntitlements.length) {
     const allowedIds = new Set(state.myEntitlements.map((e) => Number(e.typeId)));
     allowedIds.add(7);
-    allowedIds.add(12);
     const filtered = types.filter((t) => allowedIds.has(Number(t.hrd_leave_type_id)));
     if (filtered.length) types = filtered;
   }
@@ -552,22 +563,18 @@ function openLeaveFormModal(typeId = 1) {
 
 async function requestCancelLeave(id) {
   if (!state.user) return openLoginModal();
-  const { leave: r } = await api(`/api/leaves/${id}`);
-  resetLeaveForm();
-  populateLeaveTypeSelect(12);
-  document.getElementById('formLeaveTitle').textContent = `ขอยกเลิกวันลา (อ้างอิงใบลา #${r.hrd_leave_id})`;
-  document.getElementById('fTypeId').value = '12';
-  document.getElementById('fDayType').value = r.leave_day_type || 1;
-  document.getElementById('fStartDate').value = String(r.leave_startdate).slice(0, 10);
-  document.getElementById('fEndDate').value = String(r.leave_enddate).slice(0, 10);
-  document.getElementById('fLeaveDay').value = r.calc_days || r.leave_day || 1;
-  document.getElementById('fYearName').value = r.year_name || state.fiscalYear;
-  document.getElementById('fBecauseCancel').value = `ขอยกเลิก${r.hrd_leave_type_name || 'การลา'} (อ้างอิงเลขที่ #${r.hrd_leave_id})`;
-  populateAssignedSelect(r.department_id || state.user.department_id, r.person_id, r.leave_assigned_person_id || '');
-  document.getElementById('fContactTel').value = r.leave_contact_tel || state.user.phone_number || '';
-  document.getElementById('fContactAddr').value = r.leave_contact || '';
-  onLeaveTypeChange();
-  document.getElementById('leaveFormModal').classList.remove('hidden');
+  if (!confirm(`ยืนยันการยกเลิกใบลาเลขที่ #${id} ?\n(ระบบจะเปลี่ยนสถานะเป็น "ยกเลิกใบลา" และคืนสิทธิ์วันลาโดยไม่สร้างเลขที่เอกสารใหม่)`)) return;
+  try {
+    await api(`/api/leaves/${id}/cancel`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason: 'ยกเลิกใบลา' }),
+    });
+    await loadDashboardStats();
+    applyFilters();
+    if (state.currentTab === 'admin') loadAdminLeaves(state.adminPage || 1);
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function resetLeaveForm() {
@@ -1255,22 +1262,27 @@ async function loadAdminLeaves(page = 1) {
     year_name: state.fiscalYear,
   });
   const data = await api(`/api/leaves?${params.toString()}`);
-  document.getElementById('adminLeavesTbody').innerHTML = data.items.map((r) => `
-    <tr>
+  document.getElementById('adminLeavesTbody').innerHTML = data.items.map((r) => {
+    const isCancelled = Number(r.allow_id) === 9;
+    const statusText = isCancelled ? 'ยกเลิกใบลา' : (r.allow_name || 'รออนุมัติ');
+    return `
+    <tr class="${isCancelled ? 'row-cancelled' : ''}">
       <td><strong>#${r.hrd_leave_id}</strong></td>
-      <td>${esc(r.full_name)}<br><small style="color:#64748b">${esc(r.department_name || '-')}</small></td>
+      <td>${esc(r.full_name)}<br><small style="color:${isCancelled ? '#dc2626' : '#64748b'}">${esc(r.department_name || '-')}</small></td>
       <td>${esc(r.hrd_leave_type_name)}</td>
       <td style="white-space:nowrap">${fmtThaiDate(r.leave_startdate)} - ${fmtThaiDate(r.leave_enddate)}</td>
       <td>${r.calc_days} วัน</td>
-      <td><span class="badge badge-${r.allow_id || 1}">${esc(r.allow_name)}</span></td>
+      <td><span class="badge badge-${r.allow_id || 1}">${esc(statusText)}</span></td>
       <td style="white-space:nowrap">
         <button class="btn-soft btn-sm" onclick="openLeaveDetail(${r.hrd_leave_id})">ดู</button>
         <button class="btn-aurora btn-sm" onclick="approveLeave(${r.hrd_leave_id}, 2)">✓ อนุญาต</button>
         <button class="btn-danger btn-sm" onclick="approveLeave(${r.hrd_leave_id}, 3)">✕ ไม่อนุญาต</button>
+        ${!isCancelled ? `<button class="btn-danger btn-sm" onclick="requestCancelLeave(${r.hrd_leave_id})">ยกเลิกใบลา</button>` : ''}
         <button class="btn-soft btn-sm" onclick="openPdfModal('ใบลา #${r.hrd_leave_id}', '/api/leaves/${r.hrd_leave_id}/pdf')">🖨️ PDF</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;">ไม่มีรายการ</td></tr>';
+  `;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;">ไม่มีรายการ</td></tr>';
 
   document.getElementById('adminLeavesPag').innerHTML = `
     <div>ทั้งหมด ${data.total.toLocaleString()} รายการ</div>
