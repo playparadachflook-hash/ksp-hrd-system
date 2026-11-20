@@ -406,7 +406,13 @@ app.get('/api/leaves/stats', async (req, res) => {
     );
     let myTrains = 0;
     if (uid !== null) {
-      const [[myTr]] = await pool.query('SELECT COUNT(*) AS cnt FROM hrd_train_data WHERE person_id = ?', [uid]);
+      const [[myTr]] = await pool.query(
+        `SELECT COUNT(DISTINCT t.train_data_id) AS cnt
+         FROM hrd_train_data t
+         LEFT JOIN hrd_train_companions tc ON tc.train_data_id = t.train_data_id
+         WHERE t.person_id = ? OR tc.person_id = ?`,
+        [uid, uid]
+      );
       myTrains = Number(myTr?.cnt || 0);
     }
 
@@ -872,18 +878,82 @@ app.delete('/api/leaves/:id', requireAdmin, async (req, res) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hrd_train_companions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        train_data_id INT NOT NULL,
+        person_id INT NOT NULL,
+        seq_no INT NOT NULL DEFAULT 1,
+        companion_name VARCHAR(255) DEFAULT '',
+        companion_position VARCHAR(255) DEFAULT '',
+        UNIQUE KEY uniq_train_person (train_data_id, person_id),
+        INDEX idx_comp_person (person_id),
+        INDEX idx_comp_train (train_data_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    const [existingMemos] = await pool.query('SELECT train_data_id, companions_json FROM hrd_train_memo WHERE companions_json IS NOT NULL AND companions_json != ""');
+    if (existingMemos.length) {
+      const [allPersons] = await pool.query(
+        `SELECT p.person_id, TRIM(p.fname) AS fname, TRIM(p.lname) AS lname,
+                CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+                CONCAT(TRIM(p.fname), ' ', TRIM(p.lname)) AS bare_name
+         FROM hrd_person p
+         LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+         WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''`
+      );
+      for (const m of existingMemos) {
+        try {
+          const parsed = JSON.parse(m.companions_json);
+          if (!Array.isArray(parsed)) continue;
+          for (let i = 0; i < parsed.length; i++) {
+            const c = parsed[i] || {};
+            let pid = Number(c.person_id || 0);
+            const cName = String(c.name || '').replace(/\s+/g, ' ').trim();
+            if (!pid && cName) {
+              const bare = cName.replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.|ทพ\.|ทพญ\.|ภก\.|ภญ\.)\s*/i, '').trim();
+              const found = allPersons.find((p) => p.full_name === cName || p.bare_name === cName || p.bare_name === bare);
+              if (found) pid = Number(found.person_id);
+            }
+            if (pid > 0) {
+              await pool.query(
+                `INSERT IGNORE INTO hrd_train_companions (train_data_id, person_id, seq_no, companion_name, companion_position)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [Number(m.train_data_id), pid, i + 1, cName, String(c.position || '').trim()]
+              );
+            }
+          }
+        } catch {}
+      }
+    }
   } catch (err) {
     console.warn('ensureTrainSchema skipped:', err.message);
   }
 })();
 
 async function saveTrainMemo(trainDataId, b) {
-  const list = Array.isArray(b.companions)
-    ? b.companions
-        .slice(0, 6)
-        .map((c) => ({ name: String(c?.name || '').trim(), position: String(c?.position || '').trim() }))
-        .filter((c) => c.name || c.position)
-    : [];
+  const [allPersons] = await pool.query(
+    `SELECT p.person_id,
+            CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+            CONCAT(TRIM(p.fname), ' ', TRIM(p.lname)) AS bare_name
+     FROM hrd_person p
+     LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+     WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''`
+  );
+  const rawList = Array.isArray(b.companions) ? b.companions.slice(0, 6) : [];
+  const list = [];
+  for (let i = 0; i < rawList.length; i++) {
+    const c = rawList[i] || {};
+    const name = String(c.name || '').replace(/\s+/g, ' ').trim();
+    const position = String(c.position || '').trim();
+    if (!name && !position) continue;
+    let person_id = Number(c.person_id || 0);
+    if (!person_id && name) {
+      const bare = name.replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.|ทพ\.|ทพญ\.|ภก\.|ภญ\.)\s*/i, '').trim();
+      const found = allPersons.find((p) => p.full_name === name || p.bare_name === name || p.bare_name === bare);
+      if (found) person_id = Number(found.person_id);
+    }
+    list.push({ person_id: person_id || null, name, position });
+  }
   const dirName = String(b.director_name || '').trim() || 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
   const dirPos1 = String(b.director_pos1 || '').trim() || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
   const dirPos2 = String(b.director_pos2 || '').trim() || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ';
@@ -913,6 +983,18 @@ async function saveTrainMemo(trainDataId, b) {
       dirPos2,
     ]
   );
+  await pool.query('DELETE FROM hrd_train_companions WHERE train_data_id = ?', [trainDataId]);
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c.person_id) {
+      await pool.query(
+        `INSERT INTO hrd_train_companions (train_data_id, person_id, seq_no, companion_name, companion_position)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE seq_no = VALUES(seq_no), companion_name = VALUES(companion_name), companion_position = VALUES(companion_position)`,
+        [trainDataId, Number(c.person_id), i + 1, c.name, c.position]
+      );
+    }
+  }
 }
 
 async function saveTrainImage(trainDataId, trainImage, fileName = '') {
@@ -952,16 +1034,19 @@ app.get('/api/trains', async (req, res) => {
       params.push(Number(req.query.train_type_id));
     }
     if (req.query.mine === '1' && req.session.user) {
-      where.push('t.person_id = ?');
-      params.push(Number(req.session.user.person_id));
+      where.push('(t.person_id = ? OR EXISTS (SELECT 1 FROM hrd_train_companions tc WHERE tc.train_data_id = t.train_data_id AND tc.person_id = ?))');
+      params.push(Number(req.session.user.person_id), Number(req.session.user.person_id));
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const [[cntRow]] = await pool.query(`SELECT COUNT(*) AS cnt FROM hrd_train_data t ${whereSql}`, params);
     const total = Number(cntRow?.cnt || 0);
+    const uid = req.session.user ? Number(req.session.user.person_id) : 0;
     const [items] = await pool.query(
       `SELECT t.*, tt.train_type_name, ta.train_about_name, ar.train_area_name, tb.train_budget_name,
               CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
-              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image
+              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image,
+              CASE WHEN ? > 0 AND EXISTS (SELECT 1 FROM hrd_train_companions tc WHERE tc.train_data_id = t.train_data_id AND tc.person_id = ?) THEN 1 ELSE 0 END AS is_companion,
+              (SELECT GROUP_CONCAT(tc2.companion_name ORDER BY tc2.seq_no SEPARATOR ', ') FROM hrd_train_companions tc2 WHERE tc2.train_data_id = t.train_data_id) AS companions_summary
        FROM hrd_train_data t
        LEFT JOIN hrd_train_type tt ON tt.train_type_id = t.train_type_id
        LEFT JOIN hrd_train_about ta ON ta.train_about_id = t.train_about_id
@@ -973,7 +1058,7 @@ app.get('/api/trains', async (req, res) => {
        ${whereSql}
        ORDER BY t.train_data_id DESC
        LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      [uid, uid, ...params, limit, offset]
     );
     res.json({ items, total, page, limit, totalPages: Math.ceil(total / limit) || 1 });
   } catch (err) {
@@ -1104,7 +1189,14 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const [existing] = await pool.query('SELECT person_id FROM hrd_train_data WHERE train_data_id = ? LIMIT 1', [id]);
     if (!existing.length) return res.status(404).json({ error: 'ไม่พบข้อมูลอบรม' });
-    if (!req.session.user.isAdmin && Number(existing[0].person_id) !== Number(req.session.user.person_id)) {
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(existing[0].person_id) === uid;
+    let isComp = false;
+    if (!req.session.user.isAdmin && !isOwner) {
+      const [compRows] = await pool.query('SELECT id FROM hrd_train_companions WHERE train_data_id = ? AND person_id = ? LIMIT 1', [id, uid]);
+      isComp = compRows.length > 0;
+    }
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
       return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลของผู้อื่น' });
     }
     const b = req.body;
@@ -1147,6 +1239,7 @@ app.put('/api/trains/:id', requireAuth, async (req, res) => {
 app.delete('/api/trains/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    await pool.query('DELETE FROM hrd_train_companions WHERE train_data_id = ?', [id]);
     await pool.query('DELETE FROM hrd_train_images WHERE train_data_id = ?', [id]);
     await pool.query('DELETE FROM hrd_train_memo WHERE train_data_id = ?', [id]);
     await pool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [id]);

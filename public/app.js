@@ -700,12 +700,17 @@ async function loadTrains(page = 1, mineOnly = false) {
   });
   const data = await api(`/api/trains?${params.toString()}`);
   document.getElementById('trainsTbody').innerHTML = data.items.map((t) => {
-    const canEdit = state.user && (state.user.isAdmin || Number(t.person_id) === Number(state.user.person_id));
+    const isOwner = state.user && Number(t.person_id) === Number(state.user.person_id);
+    const isComp = Boolean(t.is_companion);
+    const canEdit = state.user && (state.user.isAdmin || isOwner || isComp);
+    const compHint = !isOwner && isComp
+      ? `<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-top:4px;">👥 ผู้ร่วมเดินทาง (บันทึกโดย ${esc(t.full_name || '-')})</span>`
+      : (t.companions_summary ? `<div style="font-size:11.5px;color:#0f766e;margin-top:3px;">👥 ผู้เดินทาง: ${esc(t.companions_summary)}</div>` : '');
     return `
     <tr>
       <td><strong>#${t.train_data_id}</strong></td>
       <td>${t.train_order ? `<code>${esc(t.train_order)}</code>` : '<span style="color:#94a3b8">-</span>'}</td>
-      <td><strong>${esc(t.train_topic)}</strong>${t.train_type_name ? `<br><small style="color:#64748b">${esc(t.train_type_name)}</small>` : ''}</td>
+      <td><strong>${esc(t.train_topic)}</strong>${t.train_type_name ? `<br><small style="color:#64748b">${esc(t.train_type_name)}</small>` : ''}${compHint ? `<br>${compHint}` : ''}</td>
       <td>${esc(t.train_org || '-')}<br><small style="color:#64748b">${esc(t.train_place || '')}</small></td>
       <td>${t.train_travel ? `<span class="badge" style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4">${esc(t.train_travel)}</span>` : '<span style="color:#94a3b8">-</span>'}</td>
       <td style="white-space:nowrap">${fmtThaiDate(t.train_startdate)} - ${fmtThaiDate(t.train_enddate)}</td>
@@ -728,35 +733,161 @@ async function loadTrains(page = 1, mineOnly = false) {
   `;
 }
 
+function resolvePersonByName(nameStr) {
+  const clean = String(nameStr || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  const bare = clean.replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.|ทพ\.|ทพญ\.|ภก\.|ภญ\.)\s*/i, '').trim();
+  return (state.master?.persons || []).find((p) => {
+    const fn = String(p.full_name || '').replace(/\s+/g, ' ').trim();
+    const fnBare = fn.replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|นพ\.|ทพ\.|ทพญ\.|ภก\.|ภญ\.)\s*/i, '').trim();
+    return fn === clean || fnBare === clean || fnBare === bare;
+  }) || null;
+}
+
 function renderCompanionRows(companions = []) {
   const box = document.getElementById('tCompanionsList');
   if (!box) return;
-  const personOpts = '<option value="">-- เลือกจากรายชื่อ --</option>' +
-    (state.master?.persons || []).map((p) => `<option value="${p.person_id}">${esc(p.full_name)}</option>`).join('');
   let html = '';
   for (let i = 1; i <= 6; i++) {
     const c = companions[i - 1] || {};
+    const matched = c.person_id
+      ? (state.master?.persons || []).find((p) => Number(p.person_id) === Number(c.person_id))
+      : resolvePersonByName(c.name);
+    const pid = c.person_id || matched?.person_id || '';
+    const hasName = Boolean(c.name || c.position);
     html += `
       <div class="companion-row">
         <span class="companion-num">${i}.</span>
-        <select class="table-select" onchange="onPickCompanion(${i}, this)">${personOpts}</select>
-        <input type="text" id="tCompName_${i}" class="table-input" placeholder="ชื่อ-นามสกุล คนที่ ${i}" value="${esc(c.name || '')}" />
-        <input type="text" id="tCompPos_${i}" class="table-input" placeholder="ตำแหน่ง" value="${esc(c.position || '')}" />
+        <input type="hidden" id="tCompPid_${i}" value="${esc(pid)}" />
+        <div class="comp-ac-wrap">
+          <input type="text" id="tCompName_${i}" class="table-input comp-name-input"
+                 placeholder="🔍 พิมพ์ชื่อ-นามสกุล คนที่ ${i} เพื่อค้นหาอัตโนมัติ..."
+                 value="${esc(c.name || '')}"
+                 autocomplete="off"
+                 onfocus="onCompanionSearchInput(${i})"
+                 oninput="onCompanionSearchInput(${i}, true)"
+                 onkeydown="onCompanionKeydown(event, ${i})"
+                 onblur="hideCompanionDropdownDelay(${i})" />
+          <button type="button" id="tCompClear_${i}" class="comp-clear-btn ${hasName ? '' : 'hidden'}"
+                  title="ล้างรายชื่อนี้" onclick="clearCompanionRow(${i})">✕</button>
+          <div id="tCompDrop_${i}" class="comp-ac-dropdown hidden"></div>
+        </div>
+        <input type="text" id="tCompPos_${i}" class="table-input" placeholder="ตำแหน่ง (ดึงอัตโนมัติเมื่อเลือกชื่อ)" value="${esc(c.position || '')}" />
       </div>
     `;
   }
   box.innerHTML = html;
 }
 
-function onPickCompanion(idx, sel) {
-  const pid = Number(sel.value || 0);
-  if (!pid) return;
-  const p = (state.master?.persons || []).find((x) => Number(x.person_id) === pid);
-  if (!p) return;
+function clearCompanionRow(idx) {
+  const pidEl = document.getElementById(`tCompPid_${idx}`);
   const nameEl = document.getElementById(`tCompName_${idx}`);
   const posEl = document.getElementById(`tCompPos_${idx}`);
+  const clearBtn = document.getElementById(`tCompClear_${idx}`);
+  const dropEl = document.getElementById(`tCompDrop_${idx}`);
+  if (pidEl) pidEl.value = '';
+  if (nameEl) nameEl.value = '';
+  if (posEl) posEl.value = '';
+  if (clearBtn) clearBtn.classList.add('hidden');
+  if (dropEl) dropEl.classList.add('hidden');
+}
+
+function onCompanionSearchInput(idx, isTyping = false) {
+  const nameEl = document.getElementById(`tCompName_${idx}`);
+  const pidEl = document.getElementById(`tCompPid_${idx}`);
+  const posEl = document.getElementById(`tCompPos_${idx}`);
+  const clearBtn = document.getElementById(`tCompClear_${idx}`);
+  const dropEl = document.getElementById(`tCompDrop_${idx}`);
+  if (!nameEl || !dropEl) return;
+
+  const q = String(nameEl.value || '').trim();
+  if (clearBtn) clearBtn.classList.toggle('hidden', !q);
+
+  if (isTyping) {
+    const exact = resolvePersonByName(q);
+    if (exact) {
+      if (pidEl) pidEl.value = exact.person_id;
+      if (posEl && !posEl.value) posEl.value = exact.position_name || '';
+    } else if (pidEl) {
+      pidEl.value = '';
+    }
+  }
+
+  const persons = state.master?.persons || [];
+  const qLower = q.toLowerCase();
+  const matches = (qLower
+    ? persons.filter((p) =>
+        `${p.full_name || ''} ${p.position_name || ''}`.toLowerCase().includes(qLower)
+      )
+    : persons
+  ).slice(0, 30);
+
+  if (!matches.length) {
+    dropEl.innerHTML = '<div class="comp-ac-empty">ไม่พบรายชื่อในระบบ (สามารถพิมพ์ชื่อ-ตำแหน่งเองได้)</div>';
+    dropEl.classList.remove('hidden');
+    return;
+  }
+
+  dropEl.innerHTML = matches.map((p, mIdx) => `
+    <div class="comp-ac-item ${mIdx === 0 ? 'active' : ''}"
+         data-pid="${p.person_id}"
+         onmousedown="event.preventDefault();selectCompanionPerson(${idx}, ${p.person_id})">
+      <div class="comp-ac-name">${esc(p.full_name)}</div>
+      <div class="comp-ac-pos">${esc(p.position_name || '-')}</div>
+    </div>
+  `).join('');
+  dropEl.classList.remove('hidden');
+}
+
+function selectCompanionPerson(idx, personId) {
+  const p = (state.master?.persons || []).find((x) => Number(x.person_id) === Number(personId));
+  if (!p) return;
+  const pidEl = document.getElementById(`tCompPid_${idx}`);
+  const nameEl = document.getElementById(`tCompName_${idx}`);
+  const posEl = document.getElementById(`tCompPos_${idx}`);
+  const clearBtn = document.getElementById(`tCompClear_${idx}`);
+  const dropEl = document.getElementById(`tCompDrop_${idx}`);
+  if (pidEl) pidEl.value = p.person_id;
   if (nameEl) nameEl.value = p.full_name || '';
   if (posEl) posEl.value = p.position_name || '';
+  if (clearBtn) clearBtn.classList.remove('hidden');
+  if (dropEl) dropEl.classList.add('hidden');
+}
+
+function onCompanionKeydown(e, idx) {
+  const dropEl = document.getElementById(`tCompDrop_${idx}`);
+  if (!dropEl || dropEl.classList.contains('hidden')) return;
+  const items = [...dropEl.querySelectorAll('.comp-ac-item')];
+  if (!items.length) return;
+  let activeIdx = items.findIndex((el) => el.classList.contains('active'));
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    items.forEach((el) => el.classList.remove('active'));
+    activeIdx = (activeIdx + 1) % items.length;
+    items[activeIdx].classList.add('active');
+    items[activeIdx].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    items.forEach((el) => el.classList.remove('active'));
+    activeIdx = (activeIdx - 1 + items.length) % items.length;
+    items[activeIdx].classList.add('active');
+    items[activeIdx].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    const activeEl = items[activeIdx >= 0 ? activeIdx : 0];
+    if (activeEl && activeEl.dataset.pid) {
+      e.preventDefault();
+      selectCompanionPerson(idx, Number(activeEl.dataset.pid));
+    }
+  } else if (e.key === 'Escape') {
+    dropEl.classList.add('hidden');
+  }
+}
+
+function hideCompanionDropdownDelay(idx) {
+  setTimeout(() => {
+    const dropEl = document.getElementById(`tCompDrop_${idx}`);
+    if (dropEl) dropEl.classList.add('hidden');
+  }, 160);
 }
 
 function openTrainModal() {
@@ -783,7 +914,7 @@ function openTrainModal() {
   document.getElementById('tDirName').value = 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
   document.getElementById('tDirPos1').value = 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
   document.getElementById('tDirPos2').value = 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ';
-  renderCompanionRows([{ name: state.user?.fullName || '', position: state.user?.position_name || '' }]);
+  renderCompanionRows([{ person_id: state.user?.person_id || '', name: state.user?.fullName || '', position: state.user?.position_name || '' }]);
   document.getElementById('tImageData').value = '';
   document.getElementById('tImageName').value = '';
   document.getElementById('tImageFile').value = '';
@@ -946,7 +1077,12 @@ async function submitTrain(e) {
   for (let i = 1; i <= 6; i++) {
     const name = String(document.getElementById(`tCompName_${i}`)?.value || '').trim();
     const position = String(document.getElementById(`tCompPos_${i}`)?.value || '').trim();
-    if (name || position) companions.push({ name, position });
+    let person_id = Number(document.getElementById(`tCompPid_${i}`)?.value || 0);
+    if (!person_id && name) {
+      const matched = resolvePersonByName(name);
+      if (matched) person_id = Number(matched.person_id);
+    }
+    if (name || position) companions.push({ person_id: person_id || null, name, position });
   }
   const num = (elId) => {
     const v = Number(document.getElementById(elId)?.value || 0);
