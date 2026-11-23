@@ -6,7 +6,7 @@
   <title>KSP HRD Portal • ระบบการลาและพัฒนาบุคลากร รพ.โคกศรีสุพรรณ</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -59,7 +59,7 @@
       <header class="topbar no-print">
         <div>
           <h1 id="pageTitle">ระบบบริหารงานบุคลากร การลา และฝึกอบรมออนไลน์</h1>
-          <p class="topbar-sub"><span class="topbar-live-dot"></span><span>เชื่อมต่อฐานข้อมูลกลาง <code>db_hrd</code> • แบบฟอร์ม PDF มาตรฐานราชการ</span></p>
+          <p class="topbar-sub">เชื่อมต่อฐานข้อมูลกลาง <code>db_hrd</code> • แบบฟอร์ม PDF มาตรฐานราชการ</p>
         </div>
         <div class="topbar-actions">
           <select id="globalFiscalYear" class="fy-select" onchange="onFiscalYearChange()">
@@ -77,19 +77,19 @@
         <!-- KPI Cluster -->
         <div class="bento-card bento-kpi-cluster">
           <div class="kpi-tile kpi-indigo" onclick="openMyLeavesFilter('', '')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาทั้งหมดของคุณ">
-            <span class="kpi-cap"><span>ใบลาของคุณ (ปีงบฯ)</span><span>📄</span></span>
+            <span class="kpi-cap">ใบลาของคุณ (ปีงบฯ)</span>
             <strong id="kpiTotal">-</strong>
           </div>
           <div class="kpi-tile kpi-amber" onclick="openMyLeavesFilter('', '1')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาที่รออนุมัติ">
-            <span class="kpi-cap"><span>รออนุมัติ</span><span>⏳</span></span>
+            <span class="kpi-cap">รออนุมัติ</span>
             <strong id="kpiPending">-</strong>
           </div>
           <div class="kpi-tile kpi-emerald" onclick="openMyLeavesFilter('', '2')" style="cursor:pointer;" title="คลิกเพื่อดูใบลาที่อนุญาตแล้ว">
-            <span class="kpi-cap"><span>อนุญาตแล้ว</span><span>✅</span></span>
+            <span class="kpi-cap">อนุญาตแล้ว</span>
             <strong id="kpiApproved">-</strong>
           </div>
           <div class="kpi-tile kpi-cyan" onclick="openMyTrains()" style="cursor:pointer;" title="คลิกเพื่อดูประวัติการอบรมของคุณ">
-            <span class="kpi-cap"><span>ประวัติอบรมของคุณ</span><span>🎓</span></span>
+            <span class="kpi-cap">ประวัติอบรมของคุณ</span>
             <strong id="kpiTrainPerson" style="font-size:19px;">-</strong>
           </div>
         </div>
