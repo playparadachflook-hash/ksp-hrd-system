@@ -10,6 +10,7 @@ const state = {
   adminCalMonth: new Date().getMonth() + 1,
   page: 1,
   trainPage: 1,
+  trainsMineOnly: true,
   adminPage: 1,
   myEntitlements: [],
 };
@@ -219,8 +220,8 @@ function openMyLeavesFilter(typeId, statusId) {
 
 function openMyTrains() {
   if (!state.user) return openLoginModal();
+  state.trainsMineOnly = true;
   switchTab('trains');
-  loadTrains(1, true);
 }
 
 // ==================== TABS ====================
@@ -689,14 +690,24 @@ async function submitLeave(e) {
 }
 
 // ==================== TRAINING ====================
-async function loadTrains(page = 1, mineOnly = false) {
+function setTrainsMineMode(mineOnly) {
+  state.trainsMineOnly = Boolean(mineOnly);
+  loadTrains(1, state.trainsMineOnly);
+}
+
+async function loadTrains(page = 1, mineOnly = state.trainsMineOnly) {
   state.trainPage = page;
+  state.trainsMineOnly = Boolean(mineOnly);
+  const btnMine = document.getElementById('btnTrainsMine');
+  const btnAll = document.getElementById('btnTrainsAll');
+  if (btnMine) btnMine.classList.toggle('active', state.trainsMineOnly);
+  if (btnAll) btnAll.classList.toggle('active', !state.trainsMineOnly);
   const params = new URLSearchParams({
     page,
     limit: 20,
     q: document.getElementById('trainQ').value,
     train_type_id: document.getElementById('trainTypeFilter').value,
-    mine: mineOnly ? '1' : '0',
+    mine: state.trainsMineOnly && state.user ? '1' : '0',
   });
   const data = await api(`/api/trains?${params.toString()}`);
   document.getElementById('trainsTbody').innerHTML = data.items.map((t) => {
@@ -903,6 +914,9 @@ function openTrainModal() {
   document.getElementById('tPlace').value = '';
   document.getElementById('tStart').value = today;
   document.getElementById('tEnd').value = today;
+  document.getElementById('tType').value = '';
+  document.getElementById('tArea').value = '';
+  document.getElementById('tBudget').value = '';
   document.getElementById('tPayReg').value = '0';
   document.getElementById('tPayApt').value = '0';
   document.getElementById('tPayAllow').value = '0';

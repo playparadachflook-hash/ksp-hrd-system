@@ -255,7 +255,13 @@
         <div class="glass-panel">
           <div class="panel-head">
             <h2>ทะเบียนข้อมูลฝึกอบรม / ประชุมวิชาการ / ไปราชการ</h2>
-            <button class="btn-aurora" onclick="openTrainModal()">+ บันทึกการอบรมใหม่</button>
+            <div class="panel-actions">
+              <div class="seg-toggle" style="margin-bottom:0;">
+                <button type="button" class="seg-btn active" id="btnTrainsMine" onclick="setTrainsMineMode(true)">👤 ของฉัน</button>
+                <button type="button" class="seg-btn" id="btnTrainsAll" onclick="setTrainsMineMode(false)">🌐 ทั้งหมด</button>
+              </div>
+              <button class="btn-aurora" onclick="openTrainModal()">+ บันทึกการอบรมใหม่</button>
+            </div>
           </div>
           <div class="filter-bar">
             <input type="text" id="trainQ" placeholder="ค้นหา: หัวข้ออบรม, เลขที่หนังสือ, หน่วยงานจัด, สถานที่..." />
@@ -574,7 +580,7 @@
         <h3 id="trainModalTitle">บันทึกข้อมูลฝึกอบรม / ประชุมวิชาการ</h3>
         <button class="close-btn" onclick="closeModal('trainModal')">✕</button>
       </div>
-      <form onsubmit="submitTrain(event)" style="padding:18px 22px;">
+      <form autocomplete="off" onsubmit="submitTrain(event)" style="padding:18px 22px;">
         <input type="hidden" id="tId" />
         <div class="form-grid">
           <div class="form-group full">
