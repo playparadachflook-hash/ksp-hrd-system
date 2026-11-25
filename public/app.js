@@ -220,8 +220,7 @@ function openMyLeavesFilter(typeId, statusId) {
 
 function openMyTrains() {
   if (!state.user) return openLoginModal();
-  state.trainsMineOnly = true;
-  switchTab('trains');
+  window.location.href = `${window.location.protocol}//${window.location.hostname}:3534/?tab=mine`;
 }
 
 // ==================== TABS ====================
