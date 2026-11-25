@@ -147,11 +147,14 @@ async function loadDashboardStats() {
   document.getElementById('kpiTotal').textContent = data.totals.total.toLocaleString();
   document.getElementById('kpiPending').textContent = data.totals.pending.toLocaleString();
   document.getElementById('kpiApproved').textContent = data.totals.approved.toLocaleString();
-  if (state.user) {
-    const cnt = Number(data.totals.myTrains || 0);
-    document.getElementById('kpiTrainPerson').textContent = cnt > 0 ? `เคยอบรม ${cnt} ครั้ง` : 'ยังไม่เคยอบรม';
-  } else {
-    document.getElementById('kpiTrainPerson').textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
+  const trainEl = document.getElementById('kpiTrainPerson');
+  if (trainEl) {
+    if (state.user) {
+      const cnt = Number(data.totals.myTrains || 0);
+      trainEl.textContent = cnt > 0 ? `เคยอบรม ${cnt} ครั้ง` : 'ยังไม่เคยอบรม';
+    } else {
+      trainEl.textContent = `${data.totals.totalTrains.toLocaleString()} / ${data.totals.totalPersons}`;
+    }
   }
 
   // Admin pending approval badge
