@@ -349,10 +349,15 @@ body {
 }
 
 .kpi-tile strong {
-  font-size: 29px;
-  font-weight: 700;
-  margin-top: 6px;
-  line-height: 1.1;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: clamp(46px, 4.5vw, 72px);
+  font-weight: 800;
+  margin-top: 0;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   position: relative;
   z-index: 1;
